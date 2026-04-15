@@ -325,6 +325,58 @@ async function createSPItem(token, siteUrl, listName, payload) {
   return json.d||json;
 }
 
+// ─── Dist File (alocacao_dist.json in SharePoint Documents) ──────────────────
+// Stores: per-analyst % breakdown + tool-only projects (not in List_Pulse)
+// {
+//   "distributions": { "spId": { "Etapa_1": [10,20], ... } },
+//   "localProjects": [ { full project object }, ... ]
+// }
+function _distFileUrl(siteUrl) {
+  const rel = new URL(siteUrl).pathname; // e.g. /personal/automacoes_fpa_...
+  return {
+    read:   `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${rel}/Documents/alocacao_dist.json')/$value`,
+    write:  `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${rel}/Documents')/Files/add(url='alocacao_dist.json',overwrite=true)`,
+  };
+}
+async function fetchDistFile(token, siteUrl) {
+  try {
+    const {read} = _distFileUrl(siteUrl);
+    const res = await fetch(read, { headers:{'Authorization':`Bearer ${token}`,'Accept':'text/plain'} });
+    if (!res.ok) return {distributions:{},localProjects:[]};
+    const txt = await res.text();
+    return JSON.parse(txt);
+  } catch { return {distributions:{},localProjects:[]}; }
+}
+async function saveDistFile(token, siteUrl, data) {
+  const {write} = _distFileUrl(siteUrl);
+  const res = await fetch(write, {
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/octet-stream'},
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) { const t=await res.text().catch(()=>''); throw new Error(`Erro ao salvar arquivo: ${res.status} ${t.slice(0,150)}`); }
+}
+// Merge SP items + distribution file → complete project list
+function mergeProjectsWithDist(spItems, dist) {
+  const spProjects = spItems.map(item=>{
+    const proj = parseSPItem(item);
+    const saved = dist.distributions?.[String(proj.spId)];
+    if (!saved) return proj;
+    const phases={};
+    PHASES.forEach(ph=>{
+      const storedPcts = saved[ph.key];
+      const base = proj.phases[ph.key];
+      // Use stored pcts if length matches analyst count, otherwise equal-split fallback
+      phases[ph.key] = {
+        ...base,
+        pcts: storedPcts && storedPcts.length===proj.analysts.length ? storedPcts : base.pcts,
+      };
+    });
+    return {...proj, phases};
+  });
+  return [...spProjects, ...(dist.localProjects||[])];
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const local = loadLocal();
@@ -343,6 +395,7 @@ function App() {
     const e=new Date(n.getFullYear()+1,n.getMonth(),1);
     return {start:s, end:`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}`};
   });
+  const [distData,         setDistData]         = useState({distributions:{},localProjects:[]});
   const [showEdit,         setShowEdit]         = useState(null);   // project obj or 'new'
   const [showAnalystDetail,setShowAnalystDetail] = useState(null);
 
@@ -353,13 +406,17 @@ function App() {
   const analysts    = useMemo(()=>Object.keys(allocations).sort(),[allocations]);
   const months      = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
 
-  // ── Auth ──
-  const fetchSP = useCallback(async(token)=>{
+  // ── Load all data: SP items + dist file → merged projects ──
+  const loadAll = useCallback(async(token)=>{
     setLoading(true); setError('');
     try {
-      const items = await fetchSPList(token, SP_SITE_URL, SP_LIST_NAME);
-      setProjects(items.map(parseSPItem));
-    } catch(e) { setError('Erro ao buscar SharePoint: '+e.message); }
+      const [spItems, dist] = await Promise.all([
+        fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
+        fetchDistFile(token, SP_SITE_URL),
+      ]);
+      setDistData(dist);
+      setProjects(mergeProjectsWithDist(spItems, dist));
+    } catch(e) { setError('Erro ao carregar dados: '+e.message); }
     finally { setLoading(false); }
   },[]);
 
@@ -369,63 +426,95 @@ function App() {
     try {
       const {token,user} = await acquireToken(clientId,tenantId);
       setAuthState({isAuth:true,user,token});
-      const items = await fetchSPList(token, SP_SITE_URL, SP_LIST_NAME);
-      setProjects(items.map(parseSPItem));
+      await loadAll(token);
     } catch(e) { setError('Erro: '+e.message); }
     finally { setLoading(false); }
-  },[clientId,tenantId]);
+  },[clientId,tenantId,loadAll]);
 
   const signOut = useCallback(async()=>{
     await signOutMsal(clientId,tenantId);
     setAuthState({isAuth:false,user:'',token:''});
     setProjects([]);
+    setDistData({distributions:{},localProjects:[]});
   },[clientId,tenantId]);
 
-  // ── Save Project (PATCH existing or POST new — always to SP when connected) ──
+  // ── Save Project ──
+  // SP projects:    PATCH/POST List_Pulse  +  update distributions in dist file
+  // Local projects: save full project obj in dist file (shared via SP, no new SP columns)
   const saveProject = useCallback(async(project)=>{
-    if (authState.isAuth && authState.token) {
-      setSaving(true); setSaveMsg(null);
-      try {
-        const payload = buildSPPayload(project);
-        if (project.spId) {
-          // Update existing SP item
-          await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
-          setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
-          setSaveMsg({type:'success',text:'✓ Alterações salvas no SharePoint.'});
-        } else {
-          // Create new SP item
-          const fullPayload = {
-            ...payload,
-            Title:           project.title,
-            Nome_Programa:   project.title,
-            Cliente:         project.client||'',
-            Status_Programa: project.status||'',
-          };
-          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, fullPayload);
-          const newId   = created.Id||created.id;
-          const newProj = {...project, spId:newId, id:String(newId), source:'sharepoint'};
-          setProjects(prev=>[...prev, newProj]);
-          setSaveMsg({type:'success',text:'✓ Projeto criado no SharePoint.'});
-        }
-      } catch(e) {
-        setSaveMsg({type:'error',text:'Erro ao salvar: '+e.message});
-      } finally {
-        setSaving(false);
-        setShowEdit(null);
-        setTimeout(()=>setSaveMsg(null),5000);
-      }
-    } else {
-      // No SP auth — save locally, visible in all views this session
+    if (!authState.isAuth || !authState.token) {
+      // No auth: session-only (warn user)
       if (project.spId) {
         setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
       } else {
         setProjects(prev=>[...prev, {...project, id:'local_'+Date.now(), source:'local'}]);
       }
-      setSaveMsg({type:'warn',text:'⚠️ Salvo localmente. Conecte ao SharePoint para compartilhar com a equipe.'});
+      setSaveMsg({type:'warn',text:'⚠️ Salvo localmente nesta sessão. Conecte ao SharePoint para compartilhar.'});
       setShowEdit(null);
       setTimeout(()=>setSaveMsg(null),7000);
+      return;
     }
-  },[authState]);
+
+    setSaving(true); setSaveMsg(null);
+    try {
+      // Work on a mutable copy of distData
+      const newDist = {
+        distributions: {...(distData.distributions||{})},
+        localProjects:  [...(distData.localProjects||[])],
+      };
+
+      if (project.source==='sharepoint') {
+        // ── SP project ──
+        const payload = buildSPPayload(project);
+        if (project.spId) {
+          await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
+          setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
+        } else {
+          const fullPayload = {
+            ...payload,
+            Title:project.title, Nome_Programa:project.title,
+            Cliente:project.client||'', Status_Programa:project.status||'',
+          };
+          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, fullPayload);
+          const newId   = created.Id||created.id;
+          const saved   = {...project, spId:newId, id:String(newId), source:'sharepoint'};
+          setProjects(prev=>[...prev, saved]);
+          project = saved; // update reference for dist save below
+        }
+        // Save per-analyst distribution for this SP project
+        const dist={};
+        PHASES.forEach(ph=>{ dist[ph.key]=project.phases[ph.key]?.pcts||[]; });
+        newDist.distributions[String(project.spId)] = dist;
+        setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
+
+      } else {
+        // ── Local / tool-only project → stored entirely in dist file ──
+        const finalId = project.id?.startsWith('proj_')||project.id?.startsWith('local_')
+          ? project.id : 'local_'+Date.now();
+        const localProj = {...project, id:finalId, spId:null, source:'local'};
+        const idx = newDist.localProjects.findIndex(p=>p.id===localProj.id);
+        if (idx>=0) {
+          newDist.localProjects[idx] = localProj;
+          setProjects(prev=>prev.map(p=>p.id===localProj.id ? localProj : p));
+        } else {
+          newDist.localProjects.push(localProj);
+          setProjects(prev=>[...prev, localProj]);
+        }
+        setSaveMsg({type:'success', text:'✓ Projeto salvo na ferramenta (visível para todos).'});
+      }
+
+      // Write updated dist file to SharePoint
+      await saveDistFile(authState.token, SP_SITE_URL, newDist);
+      setDistData(newDist);
+
+    } catch(e) {
+      setSaveMsg({type:'error', text:'Erro ao salvar: '+e.message});
+    } finally {
+      setSaving(false);
+      setShowEdit(null);
+      setTimeout(()=>setSaveMsg(null),5000);
+    }
+  },[authState, distData]);
 
   // ── Suggestions ──
   function getSuggestions(proj, phKey) {
@@ -488,7 +577,7 @@ function App() {
     <div className="min-h-screen bg-slate-50">
       <AppHeader view={view} setView={setView} authState={authState}
         onSignOut={signOut} projectCount={projects.length} loading={loading}
-        onRefresh={()=>fetchSP(authState.token)}/>
+        onRefresh={()=>loadAll(authState.token)}/>
 
       {saveMsg&&(
         <div className={`slide-down sticky top-0 z-40 text-center py-2 text-sm font-medium ${
@@ -989,6 +1078,11 @@ function SuggestionsView({projects,getSuggestions,onEdit,onAddAnalyst}) {
 
 // ─── Project Modal (redesigned — per-analyst % per phase) ─────────────────────
 function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnected}) {
+  const isExistingSP = !!(project?.spId);       // already in List_Pulse
+  const isExistingLocal = project && !project?.spId; // tool-only project being edited
+  // For new projects: default to SP if connected; user can toggle off
+  const [syncToSP, setSyncToSP] = useState(isExistingSP ? true : (isSpConnected && !isExistingLocal));
+
   const [title,    setTitle]    = useState(project?.title||'');
   const [client,   setClient]   = useState(project?.client||'');
   const [status,   setStatus]   = useState(project?.status||'');
@@ -1057,13 +1151,17 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
       const pcts = analysts.map((a,i)=>a.trim()?phases[ph.key].pcts[i]||0:null).filter(p=>p!==null);
       filteredPhases[ph.key]={...phases[ph.key], pcts};
     });
+    // source: 'sharepoint' → goes to List_Pulse + dist file
+    //         'local'      → goes to dist file only (shared via SP JSON)
+    const source = isExistingSP ? 'sharepoint'
+                 : (syncToSP && isSpConnected ? 'sharepoint' : 'local');
     onSave({
       id:     project?.id||'proj_'+Date.now(),
       spId:   project?.spId||null,
       title:  title.trim(),
       client: client.trim(),
       status,
-      source: project?.source||(isSpConnected?'sharepoint':'local'),
+      source,
       analysts: filteredA,
       phases:   filteredPhases,
     });
@@ -1078,7 +1176,11 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0 rounded-t-2xl">
           <div>
             <h2 className="text-lg font-bold text-slate-800">{project?'Editar Projeto':'Novo Projeto'}</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{isSpConnected?'Será salvo diretamente no SharePoint':'Salvo localmente (conecte ao SP para compartilhar)'}</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {isExistingSP ? '📋 Projeto do SharePoint — alterações sincronizam automaticamente'
+               : isExistingLocal ? '🗂️ Projeto da ferramenta — salvo no arquivo compartilhado'
+               : isSpConnected ? 'Novo projeto' : '⚠️ Sem conexão — salvo apenas nesta sessão'}
+            </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-red-500 text-xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100">✕</button>
         </div>
@@ -1204,13 +1306,26 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
         </div>
 
         {/* Sticky footer */}
-        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0 rounded-b-2xl bg-white">
-          <p className="text-xs text-slate-400">
-            {isSpConnected
-              ? (project?.spId?'💾 Salvar irá atualizar o item no SharePoint':'➕ Criar irá adicionar novo item no SharePoint')
-              : '⚠️ Sem conexão SP — salvo apenas localmente'}
-          </p>
-          <div className="flex gap-2">
+        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0 rounded-b-2xl bg-white flex-wrap">
+          {/* SP sync toggle — only for NEW projects when SP connected */}
+          {!isExistingSP && !isExistingLocal && isSpConnected ? (
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div onClick={()=>setSyncToSP(v=>!v)}
+                className={`relative w-9 h-5 rounded-full transition ${syncToSP?'bg-indigo-600':'bg-slate-300'}`}>
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${syncToSP?'translate-x-4':'translate-x-0.5'}`}/>
+              </div>
+              <span className="text-xs text-slate-600">
+                {syncToSP ? '📋 Adicionar ao SharePoint (List_Pulse)' : '🗂️ Salvar apenas na ferramenta'}
+              </span>
+            </label>
+          ) : (
+            <p className="text-xs text-slate-400">
+              {isExistingSP ? '💾 Salva no SharePoint + distribução no arquivo'
+               : isExistingLocal ? '🗂️ Salva no arquivo compartilhado (alocacao_dist.json)'
+               : '⚠️ Sem conexão — visível só nesta sessão'}
+            </p>
+          )}
+          <div className="flex gap-2 ml-auto">
             <button onClick={onClose} className="border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition">
               Cancelar
             </button>
