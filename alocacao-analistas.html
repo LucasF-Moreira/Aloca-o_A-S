@@ -338,39 +338,54 @@ async function createSPItem(token, siteUrl, listName, payload) {
 }
 
 // ─── Dist File (alocacao_dist.json in SharePoint Documents) ──────────────────
-// Stores: per-analyst % breakdown + tool-only projects (not in List_Pulse)
-// {
-//   "distributions": { "spId": { "Etapa_1": [10,20], ... } },
-//   "localProjects": [ { full project object }, ... ]
-// }
-function _distFileUrl(siteUrl) {
-  const rel = new URL(siteUrl).pathname; // e.g. /personal/automacoes_fpa_...
-  return {
-    read:   `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${rel}/Documents/alocacao_dist.json')/$value`,
-    write:  `${siteUrl}/_api/web/GetFolderByServerRelativeUrl('${rel}/Documents')/Files/add(url='alocacao_dist.json',overwrite=true)`,
-  };
-}
+// ─── Dist data stored as a hidden item in List_Pulse ─────────────────────────
+// Uses a list item with Title='__alocacao_dist__' and stores JSON in Cliente field.
+// This avoids needing write access to the Documents library.
+const DIST_MARKER = '__alocacao_dist__';
 async function fetchDistFile(token, siteUrl) {
   try {
-    const {read} = _distFileUrl(siteUrl);
-    const res = await fetch(read, { headers:{'Authorization':`Bearer ${token}`,'Accept':'text/plain'} });
+    const base = _spListBase(siteUrl, SP_LIST_NAME);
+    const url  = `${base}/items?$select=Id,Cliente&$filter=Title eq '${DIST_MARKER}'&$top=1`;
+    const res  = await fetch(url, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
     if (!res.ok) return {distributions:{},localProjects:[]};
-    const txt = await res.text();
-    return JSON.parse(txt);
+    const json = await res.json();
+    const item = (json.value||[])[0];
+    if (!item?.Cliente) return {distributions:{},localProjects:[]};
+    return JSON.parse(item.Cliente);
   } catch { return {distributions:{},localProjects:[]}; }
 }
 async function saveDistFile(token, siteUrl, data) {
-  const {write} = _distFileUrl(siteUrl);
-  const res = await fetch(write, {
-    method:'POST',
-    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/octet-stream'},
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) { const t=await res.text().catch(()=>''); throw new Error(`Erro ao salvar arquivo: ${res.status} ${t.slice(0,150)}`); }
+  const base    = _spListBase(siteUrl, SP_LIST_NAME);
+  const payload = { Title: DIST_MARKER, Cliente: JSON.stringify(data) };
+  // Check if marker item already exists
+  const chkUrl  = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
+  const chkRes  = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
+  if (!chkRes.ok) { const t=await chkRes.text().catch(()=>''); throw new Error(`Erro ao verificar dist: ${chkRes.status} ${t.slice(0,100)}`); }
+  const chkJson = await chkRes.json();
+  const existing = (chkJson.value||[])[0];
+  if (existing) {
+    // PATCH existing item
+    const patchRes = await fetch(`${base}/items(${existing.Id})`, {
+      method:'POST',
+      headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json;odata=nometadata','X-HTTP-Method':'MERGE','If-Match':'*'},
+      body: JSON.stringify(payload),
+    });
+    if (!patchRes.ok) { const t=await patchRes.text().catch(()=>''); throw new Error(`Erro ao salvar dist: ${patchRes.status} ${t.slice(0,150)}`); }
+  } else {
+    // POST new item
+    const postRes = await fetch(`${base}/items`, {
+      method:'POST',
+      headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},
+      body: JSON.stringify(payload),
+    });
+    if (!postRes.ok) { const t=await postRes.text().catch(()=>''); throw new Error(`Erro ao criar dist: ${postRes.status} ${t.slice(0,150)}`); }
+  }
 }
 // Merge SP items + distribution file → complete project list
 function mergeProjectsWithDist(spItems, dist) {
-  const spProjects = spItems.map(item=>{
+  const spProjects = spItems
+    .filter(item=>(item.Title||item.Nome_Programa||'')!==DIST_MARKER) // exclude hidden dist item
+    .map(item=>{
     const proj = parseSPItem(item);
     const saved = dist.distributions?.[String(proj.spId)];
     if (!saved) return proj;
