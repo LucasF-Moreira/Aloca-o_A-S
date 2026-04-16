@@ -519,25 +519,24 @@ async function fetchTeamMembers(token, siteUrl) {
 }
 // Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
 // 1 ou 2 → acesso completo (Gestão + Pulse). 3+ → somente Pulse. 99 = não encontrado/erro.
+// Busca sem $select para evitar problemas com nomes internos de coluna no SP.
 async function fetchUserAccess(token, siteUrl, email) {
   try {
     const base       = _spListBase(siteUrl, SP_TEAM_LIST);
     const lowerEmail = (email||'').toLowerCase().trim();
-    // Busca todos os itens sem $filter (campo texto — sem expand necessário)
-    const json  = await spFetch(token, `${base}/items?$select=Usuario,Acesso&$top=500`);
+    // Sem $select — retorna todos os campos, evita erros com nomes internos diferentes
+    const json  = await spFetch(token, `${base}/items?$top=500`);
     const items = json.value||[];
-    const item  = items.find(i=>{
-      const u = i.Usuario;
-      if (!u) return false;
-      // Campo texto simples
-      if (typeof u==='string') return u.toLowerCase().trim()===lowerEmail;
-      // People Picker (caso seja outro tipo): tenta EMail/UPN
-      if (u.EMail  && u.EMail.toLowerCase().trim()===lowerEmail)            return true;
-      if (u.UserPrincipalName && u.UserPrincipalName.toLowerCase().trim()===lowerEmail) return true;
-      return false;
-    });
+    // Procura o item onde QUALQUER campo string contenha o e-mail do usuário
+    const item  = items.find(i=>
+      Object.values(i).some(v=> typeof v==='string' && v.toLowerCase().trim()===lowerEmail)
+    );
     if (!item) return 99;
-    return parseInt(item.Acesso)||99;
+    // Tenta variações comuns do nome interno da coluna Acesso
+    const raw = item['Acesso'] ?? item['acesso'] ?? item['Acesso0'] ?? item['N_x00famero'] ?? null;
+    if (raw===null||raw===undefined) return 99;
+    const val = parseInt(raw);
+    return isNaN(val) ? 99 : val;
   } catch { return 99; }
 }
 async function patchSPItem(token, siteUrl, listName, spId, payload) {
