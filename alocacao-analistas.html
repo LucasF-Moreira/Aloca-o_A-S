@@ -519,13 +519,35 @@ async function fetchTeamMembers(token, siteUrl) {
 }
 // Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
 // 1 ou 2 → acesso completo (Gestão + Pulse). 3+ → somente Pulse. 99 = não encontrado/erro.
+// Suporta coluna Usuario tanto como texto quanto como People Picker (expand automático).
 async function fetchUserAccess(token, siteUrl, email) {
   try {
-    const base  = _spListBase(siteUrl, SP_TEAM_LIST);
-    const safe  = (email||'').replace(/'/g, "''");
-    const url   = `${base}/items?$select=Acesso&$filter=Usuario eq '${safe}'&$top=1`;
-    const json  = await spFetch(token, url);
-    const item  = (json.value||[])[0];
+    const base       = _spListBase(siteUrl, SP_TEAM_LIST);
+    const lowerEmail = (email||'').toLowerCase();
+    let items = [];
+
+    // Tenta primeiro como People Picker (expand)
+    try {
+      const json = await spFetch(token,
+        `${base}/items?$select=Usuario/EMail,Usuario/UserPrincipalName,Acesso&$expand=Usuario&$top=500`);
+      items = json.value||[];
+    } catch {
+      // Se expand falhar (campo texto simples), busca sem expand
+      const json = await spFetch(token,
+        `${base}/items?$select=Usuario,Acesso&$top=500`);
+      items = json.value||[];
+    }
+
+    const item = items.find(i=>{
+      const u = i.Usuario;
+      if (!u) return false;
+      if (typeof u==='string') return u.toLowerCase()===lowerEmail;
+      // People Picker: compara EMail e UPN
+      if (u.EMail && u.EMail.toLowerCase()===lowerEmail) return true;
+      if (u.UserPrincipalName && u.UserPrincipalName.toLowerCase()===lowerEmail) return true;
+      return false;
+    });
+
     if (!item) return 99;
     return parseInt(item.Acesso)||99;
   } catch { return 99; }
