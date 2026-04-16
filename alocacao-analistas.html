@@ -338,54 +338,63 @@ async function createSPItem(token, siteUrl, listName, payload) {
   return res.json();
 }
 
-// ─── Dist File (alocacao_dist.json in SharePoint Documents) ──────────────────
-// ─── Dist data stored as a hidden item in List_Pulse ─────────────────────────
-// Uses a list item with Title='__alocacao_dist__' and stores JSON in Cliente field.
-// This avoids needing write access to the Documents library.
-const DIST_MARKER = '__alocacao_dist__';
+// ─── Dist data stored as attachment on a hidden List_Pulse item ───────────────
+// Item Title='__alocacao_dist__' acts as a container; JSON stored as attachment.
+// No field-length limits, no new columns, no Documents folder needed.
+const DIST_MARKER   = '__alocacao_dist__';
+const DIST_ATT_NAME = 'dist.json';
+async function _getOrCreateDistItem(token, siteUrl) {
+  const base   = _spListBase(siteUrl, SP_LIST_NAME);
+  const chkUrl = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
+  const chkRes = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
+  if (!chkRes.ok) throw new Error(`Erro ao buscar dist item: ${chkRes.status}`);
+  const existing = ((await chkRes.json()).value||[])[0];
+  if (existing) return existing.Id;
+  // Create marker item
+  const postRes = await fetch(`${base}/items`, {
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},
+    body: JSON.stringify({ Title: DIST_MARKER }),
+  });
+  if (!postRes.ok) { const t=await postRes.text().catch(()=>''); throw new Error(`Erro ao criar dist item: ${postRes.status} ${t.slice(0,100)}`); }
+  return (await postRes.json()).Id;
+}
 async function fetchDistFile(token, siteUrl) {
   try {
-    const base = _spListBase(siteUrl, SP_LIST_NAME);
-    const url  = `${base}/items?$select=Id,Cliente&$filter=Title eq '${DIST_MARKER}'&$top=1`;
-    const res  = await fetch(url, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
-    if (!res.ok) return {distributions:{},localProjects:[]};
-    const json = await res.json();
-    const item = (json.value||[])[0];
-    if (!item?.Cliente) return {distributions:{},localProjects:[]};
-    return JSON.parse(item.Cliente);
+    const base   = _spListBase(siteUrl, SP_LIST_NAME);
+    const chkUrl = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
+    const chkRes = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
+    if (!chkRes.ok) return {distributions:{},localProjects:[]};
+    const item = ((await chkRes.json()).value||[])[0];
+    if (!item) return {distributions:{},localProjects:[]};
+    const attRes = await fetch(`${base}/items(${item.Id})/AttachmentFiles('${DIST_ATT_NAME}')/$value`, {
+      headers:{'Authorization':`Bearer ${token}`,'Accept':'text/plain'},
+    });
+    if (!attRes.ok) return {distributions:{},localProjects:[]};
+    return JSON.parse(await attRes.text());
   } catch { return {distributions:{},localProjects:[]}; }
 }
 async function saveDistFile(token, siteUrl, data) {
-  const base    = _spListBase(siteUrl, SP_LIST_NAME);
-  const payload = { Title: DIST_MARKER, Cliente: JSON.stringify(data) };
-  // Check if marker item already exists
-  const chkUrl  = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
-  const chkRes  = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
-  if (!chkRes.ok) { const t=await chkRes.text().catch(()=>''); throw new Error(`Erro ao verificar dist: ${chkRes.status} ${t.slice(0,100)}`); }
-  const chkJson = await chkRes.json();
-  const existing = (chkJson.value||[])[0];
-  if (existing) {
-    // PATCH existing item
-    const patchRes = await fetch(`${base}/items(${existing.Id})`, {
-      method:'POST',
-      headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/json;odata=nometadata','X-HTTP-Method':'MERGE','If-Match':'*'},
-      body: JSON.stringify(payload),
-    });
-    if (!patchRes.ok) { const t=await patchRes.text().catch(()=>''); throw new Error(`Erro ao salvar dist: ${patchRes.status} ${t.slice(0,150)}`); }
-  } else {
-    // POST new item
-    const postRes = await fetch(`${base}/items`, {
-      method:'POST',
-      headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},
-      body: JSON.stringify(payload),
-    });
-    if (!postRes.ok) { const t=await postRes.text().catch(()=>''); throw new Error(`Erro ao criar dist: ${postRes.status} ${t.slice(0,150)}`); }
-  }
+  const base   = _spListBase(siteUrl, SP_LIST_NAME);
+  const itemId = await _getOrCreateDistItem(token, siteUrl);
+  const body   = new TextEncoder().encode(JSON.stringify(data));
+  // Delete existing attachment first (ignore errors — might not exist yet)
+  await fetch(`${base}/items(${itemId})/AttachmentFiles('${DIST_ATT_NAME}')`, {
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'X-HTTP-Method':'DELETE','If-Match':'*'},
+  }).catch(()=>{});
+  // Upload new attachment
+  const upRes = await fetch(`${base}/items(${itemId})/AttachmentFiles/add(FileName='${DIST_ATT_NAME}')`, {
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`,'Content-Type':'application/octet-stream'},
+    body,
+  });
+  if (!upRes.ok) { const t=await upRes.text().catch(()=>''); throw new Error(`Erro ao salvar dist: ${upRes.status} ${t.slice(0,150)}`); }
 }
 // Merge SP items + distribution file → complete project list
 function mergeProjectsWithDist(spItems, dist) {
   const spProjects = spItems
-    .filter(item=>(item.Title||item.Nome_Programa||'')!==DIST_MARKER) // exclude hidden dist item
+    .filter(item=>item.Title!==DIST_MARKER) // exclude hidden dist item
     .map(item=>{
     const proj = parseSPItem(item);
     const saved = dist.distributions?.[String(proj.spId)];
