@@ -301,8 +301,13 @@ async function spFetch(token, url, opts={}) {
   if (res.status===204) return null;
   return res.json();
 }
+function _spListBase(siteUrl, listName) {
+  // Use GetList with server-relative URL — more reliable than GetByTitle
+  const rel = new URL(siteUrl).pathname.replace(/\/$/, '');
+  return `${siteUrl}/_api/web/GetList('${rel}/Lists/${listName}')`;
+}
 async function fetchSPList(token, siteUrl, listName) {
-  let items=[], url=`${siteUrl}/_api/web/lists/GetByTitle('${listName}')/items?$select=${SP_SELECT}&$top=200`;
+  let items=[], url=`${_spListBase(siteUrl,listName)}/items?$select=${SP_SELECT}&$top=200`;
   while (url) {
     const json = await spFetch(token, url);
     items = items.concat(json.value||[]);
@@ -311,14 +316,14 @@ async function fetchSPList(token, siteUrl, listName) {
   return items;
 }
 async function patchSPItem(token, siteUrl, listName, spId, payload) {
-  await spFetch(token, `${siteUrl}/_api/web/lists/GetByTitle('${listName}')/items(${spId})`, {
+  await spFetch(token, `${_spListBase(siteUrl,listName)}/items(${spId})`, {
     method:'POST',
     headers:{'Content-Type':'application/json;odata=verbose','X-HTTP-Method':'MERGE','If-Match':'*'},
     body:JSON.stringify({'__metadata':{'type':SP_ENTITY},...payload}),
   });
 }
 async function createSPItem(token, siteUrl, listName, payload) {
-  const res = await fetch(`${siteUrl}/_api/web/lists/GetByTitle('${listName}')/items`, {
+  const res = await fetch(`${_spListBase(siteUrl,listName)}/items`, {
     method:'POST',
     headers:{
       'Authorization':`Bearer ${token}`,
