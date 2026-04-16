@@ -65,6 +65,7 @@ const MAX_ANALYSTS   = 8;
 const ANALYST_KEYS   = Array.from({length:MAX_ANALYSTS},(_,i)=>`Analista_${i+1}`);
 const SP_SITE_URL    = 'https://ciadetalentos-my.sharepoint.com/personal/automacoes_fpa_ciadetalentos_com';
 const SP_LIST_NAME   = 'List_Pulse';
+const SP_TEAM_LIST   = 'List_Pulse_Equipe';
 const SP_SCOPE       = 'https://ciadetalentos-my.sharepoint.com/.default';
 const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
@@ -358,6 +359,14 @@ async function fetchSPList(token, siteUrl, listName) {
   }
   return items;
 }
+async function fetchTeamMembers(token, siteUrl) {
+  try {
+    const base = _spListBase(siteUrl, SP_TEAM_LIST);
+    const url  = `${base}/items?$select=Title,Classificacao&$filter=Classificacao eq 'Analista'&$top=500`;
+    const json = await spFetch(token, url);
+    return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
+  } catch { return []; }
+}
 async function patchSPItem(token, siteUrl, listName, spId, payload) {
   await spFetch(token, `${_spListBase(siteUrl,listName)}/items(${spId})`, {
     method:'POST',
@@ -474,6 +483,7 @@ function App() {
     return {start:s, end:`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}`};
   });
   const [distData,         setDistData]         = useState({distributions:{},localProjects:[]});
+  const [teamMembers,      setTeamMembers]      = useState([]);
   const [cicloFilter,      setCicloFilter]      = useState('');
   const [showEdit,         setShowEdit]         = useState(null);   // project obj or 'new'
   const [showAnalystDetail,setShowAnalystDetail] = useState(null);
@@ -484,18 +494,24 @@ function App() {
   const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
   const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
   const allocations     = useMemo(()=>computeAllocations(filteredProjects),[filteredProjects]);
-  const analysts        = useMemo(()=>Object.keys(allocations).sort(),[allocations]);
+  // Always show all team analysts; fall back to allocation-derived list if team not loaded
+  const analysts        = useMemo(()=>{
+    if (teamMembers.length>0) return teamMembers;
+    return Object.keys(allocations).sort();
+  },[teamMembers, allocations]);
   const months          = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
 
   // ── Load all data: SP items + dist file → merged projects ──
   const loadAll = useCallback(async(token)=>{
     setLoading(true); setError('');
     try {
-      const [spItems, dist] = await Promise.all([
+      const [spItems, dist, team] = await Promise.all([
         fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
         fetchDistFile(token, SP_SITE_URL),
+        fetchTeamMembers(token, SP_SITE_URL),
       ]);
       setDistData(dist);
+      setTeamMembers(team);
       setProjects(mergeProjectsWithDist(spItems, dist));
     } catch(e) {
       // Diagnostic: try to list all visible lists to find correct name
