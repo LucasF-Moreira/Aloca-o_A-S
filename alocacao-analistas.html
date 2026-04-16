@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Alocação de Analistas — Cia de Talentos</title>
+<title>Controle A&S — Cia de Talentos</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -408,14 +408,14 @@ async function acquireToken(clientId, tenantId) {
   const accounts = app.getAllAccounts();
   if (accounts.length===0) {
     const res = await app.loginPopup({scopes:[SP_SCOPE]});
-    return {token:res.accessToken, user:res.account?.name||res.account?.username||'Usuário'};
+    return {token:res.accessToken, user:res.account?.name||res.account?.username||'Usuário', email:res.account?.username||''};
   }
   try {
     const res = await app.acquireTokenSilent({scopes:[SP_SCOPE], account:accounts[0]});
-    return {token:res.accessToken, user:accounts[0]?.name||accounts[0]?.username||'Usuário'};
+    return {token:res.accessToken, user:accounts[0]?.name||accounts[0]?.username||'Usuário', email:accounts[0]?.username||''};
   } catch {
     const res = await app.loginPopup({scopes:[SP_SCOPE]});
-    return {token:res.accessToken, user:res.account?.name||res.account?.username||'Usuário'};
+    return {token:res.accessToken, user:res.account?.name||res.account?.username||'Usuário', email:res.account?.username||''};
   }
 }
 async function signOutMsal(clientId, tenantId) {
@@ -516,6 +516,19 @@ async function fetchTeamMembers(token, siteUrl) {
     const json = await spFetch(token, url);
     return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
   } catch { return []; }
+}
+// Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
+// 1 ou 2 → acesso completo (Gestão + Pulse). 3+ → somente Pulse. 99 = não encontrado/erro.
+async function fetchUserAccess(token, siteUrl, email) {
+  try {
+    const base  = _spListBase(siteUrl, SP_TEAM_LIST);
+    const safe  = (email||'').replace(/'/g, "''");
+    const url   = `${base}/items?$select=Acesso&$filter=Usuario eq '${safe}'&$top=1`;
+    const json  = await spFetch(token, url);
+    const item  = (json.value||[])[0];
+    if (!item) return 99;
+    return parseInt(item.Acesso)||99;
+  } catch { return 99; }
 }
 async function patchSPItem(token, siteUrl, listName, spId, payload) {
   await spFetch(token, `${_spListBase(siteUrl,listName)}/items(${spId})`, {
@@ -638,9 +651,15 @@ function App() {
   const [showEdit,         setShowEdit]         = useState(null);   // project obj or 'new'
   const [showAnalystDetail,setShowAnalystDetail] = useState(null);
   const [module,           setModule]           = useState(null);   // null=home | 'gestao' | 'pulse'
+  const [accessLevel,      setAccessLevel]      = useState(null);   // 1|2=full 3+=pulse-only 99=não encontrado
 
   // Only persist config locally when it wasn't baked into APP_CONFIG
   useEffect(()=>{ if (!APP_CONFIG.clientId) saveLocal({clientId,tenantId}); },[clientId,tenantId]);
+
+  // Se módulo 'gestao' for acessado sem permissão, redireciona para home
+  useEffect(()=>{
+    if (module==='gestao' && accessLevel!==null && accessLevel>=3) setModule(null);
+  },[module, accessLevel]);
 
   const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
   const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
@@ -687,8 +706,11 @@ function App() {
     if (!clientId) { setError('⚙️ Client ID não configurado. Edite APP_CONFIG no início do arquivo.'); return; }
     setLoading(true); setError('');
     try {
-      const {token,user} = await acquireToken(clientId,tenantId);
-      setAuthState({isAuth:true,user,token});
+      const {token,user,email} = await acquireToken(clientId,tenantId);
+      // Busca nível de acesso ANTES de mostrar a home (evita flash do cartão Gestão)
+      const access = await fetchUserAccess(token, SP_SITE_URL, email);
+      setAuthState({isAuth:true,user,token,email});
+      setAccessLevel(access);
       await loadAll(token);
     } catch(e) { setError('Erro: '+e.message); }
     finally { setLoading(false); }
@@ -896,6 +918,7 @@ function App() {
         onRefresh={()=>loadAll(authState.token)}
         error={error}
         onClearError={()=>setError('')}
+        accessLevel={accessLevel}
       />
     );
   }
@@ -1066,8 +1089,9 @@ function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefr
 }
 
 // ─── Home Screen (module selector, shown after login) ────────────────────────
-function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClearError}) {
-  const firstName = (authState.user||'').split(' ')[0]||'Usuário';
+function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClearError,accessLevel}) {
+  const firstName  = (authState.user||'').split(' ')[0]||'Usuário';
+  const fullAccess = accessLevel===null || accessLevel<=2; // 1 ou 2 = acesso completo
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex flex-col">
       {/* Top bar */}
@@ -1075,7 +1099,7 @@ function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClea
         <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">CT</div>
-            <span className="text-base font-bold text-slate-800">Alocação de Analistas</span>
+            <span className="text-base font-bold text-slate-800">Controle A&amp;S</span>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={onRefresh} disabled={loading} title="Atualizar dados"
@@ -1108,9 +1132,9 @@ function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClea
           <h1 className="text-3xl font-bold text-slate-900">Olá, {firstName}!</h1>
           <p className="text-slate-500 mt-2 text-sm">Selecione o módulo que deseja acessar.</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+        <div className={`grid grid-cols-1 ${fullAccess?'sm:grid-cols-2':''} gap-6 w-full max-w-2xl`}>
 
-          {/* Pulse card */}
+          {/* Pulse card — sempre visível */}
           <button onClick={()=>onSelect('pulse')}
             className="group bg-white rounded-2xl border-2 border-slate-200 hover:border-indigo-400 hover:shadow-xl transition-all p-8 text-left">
             <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center text-3xl mb-5 group-hover:bg-indigo-200 transition-colors">
@@ -1125,7 +1149,8 @@ function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClea
             </div>
           </button>
 
-          {/* Gestão card */}
+          {/* Gestão card — apenas para Acesso 1 ou 2 */}
+          {fullAccess&&(
           <button onClick={()=>onSelect('gestao')}
             className="group bg-white rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:shadow-xl transition-all p-8 text-left">
             <div className="w-14 h-14 bg-violet-100 rounded-2xl flex items-center justify-center text-3xl mb-5 group-hover:bg-violet-200 transition-colors">
@@ -1139,6 +1164,7 @@ function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClea
               Abrir Gestão <span className="ml-1.5">→</span>
             </div>
           </button>
+          )}
         </div>
       </main>
 
@@ -1161,7 +1187,7 @@ function LoginScreen({onSignIn,onImportCSV,loading,error,onClearError,clientId,s
           <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4 shadow-lg shadow-indigo-200">
             CT
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Alocação de Analistas</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Controle A&amp;S</h1>
           <p className="text-slate-500 mt-1 text-sm">Cia de Talentos</p>
         </div>
 
