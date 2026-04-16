@@ -319,8 +319,8 @@ async function fetchSPList(token, siteUrl, listName) {
 async function patchSPItem(token, siteUrl, listName, spId, payload) {
   await spFetch(token, `${_spListBase(siteUrl,listName)}/items(${spId})`, {
     method:'POST',
-    headers:{'Content-Type':'application/json;odata=verbose','X-HTTP-Method':'MERGE','If-Match':'*'},
-    body:JSON.stringify({'__metadata':{'type':SP_ENTITY},...payload}),
+    headers:{'Content-Type':'application/json;odata=nometadata','X-HTTP-Method':'MERGE','If-Match':'*'},
+    body:JSON.stringify(payload),
   });
 }
 async function createSPItem(token, siteUrl, listName, payload) {
@@ -328,14 +328,13 @@ async function createSPItem(token, siteUrl, listName, payload) {
     method:'POST',
     headers:{
       'Authorization':`Bearer ${token}`,
-      'Accept':'application/json;odata=verbose',
-      'Content-Type':'application/json;odata=verbose',
+      'Accept':'application/json;odata=nometadata',
+      'Content-Type':'application/json;odata=nometadata',
     },
-    body:JSON.stringify({'__metadata':{'type':SP_ENTITY},...payload}),
+    body:JSON.stringify(payload),
   });
   if (!res.ok) { const t=await res.text().catch(()=>''); throw new Error(`SP Create ${res.status}: ${t.slice(0,200)}`); }
-  const json = await res.json();
-  return json.d||json;
+  return res.json();
 }
 
 // ─── Dist File (alocacao_dist.json in SharePoint Documents) ──────────────────
