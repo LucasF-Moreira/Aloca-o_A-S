@@ -70,132 +70,10 @@ const SP_SCOPE       = 'https://ciadetalentos-my.sharepoint.com/.default';
 const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
 const LS_KEY         = 'ct_aloc_v4';
-const HEAD_KEYS      = ['Head_1','Head_2','Head_3'];
-
-// ─── Pulse Extra Fields ───────────────────────────────────────────────────────
-// NOTA: 'k' = nome interno da coluna no SP (verificar com Configurações da Lista → coluna → Nome interno).
-//       Campos com espaços ou caracteres especiais foram simplificados para nomes internos prováveis.
-//       t: 'text'|'textarea'|'number'|'date'|'select'  w:true = largura total  etapa:n = etapa 1-5
-const _yn  = ['Sim','Não'];
-const _rel = ['Excelente','Bom','Regular','Ruim'];
-const _tpEtapa = ['Dinâmica de Grupo','Entrevista Individual','Painel','Entrevista com Gestores',
-                  'Case','Role Play','Assessment Center','Teste Técnico','Videoentrevista','Outro'];
-const _pos    = ['Presencial','Online','Híbrido'];
-const _stPes  = ['Enviada','Respondida','Pendente','Não enviada'];
-const PULSE_FIELDS = [
-  // ── Identificação ──────────────────────────────────────────────────────────
-  {s:'Identificação',         k:'Trimestre_Orcamentario',     l:'Trimestre Orç.',              t:'select', o:['Q1','Q2','Q3','Q4']},
-  {s:'Identificação',         k:'Semestre_Orcamentario',      l:'Semestre Orç.',               t:'select', o:['1S','2S']},
-  {s:'Identificação',         k:'Codigo_Proposta',             l:'Código Proposta',             t:'text'},
-  {s:'Identificação',         k:'ID_do_Programa_ATS',          l:'ID Programa ATS',             t:'text'},
-  {s:'Identificação',         k:'Nome_do_Programa_ATS',        l:'Nome Programa ATS',           t:'text'},
-  {s:'Identificação',         k:'ATS_Utilizado',               l:'ATS Utilizado',               t:'text'},
-  // ── Produto e Tipo ─────────────────────────────────────────────────────────
-  {s:'Produto e Tipo',        k:'Produto_Principal',           l:'Produto Principal',           t:'text'},
-  {s:'Produto e Tipo',        k:'Solucao',                     l:'Solução',                     t:'text'},
-  {s:'Produto e Tipo',        k:'Publico',                     l:'Público',                     t:'text'},
-  {s:'Produto e Tipo',        k:'Tipo_Programa',               l:'Tipo de Programa',            t:'text'},
-  {s:'Produto e Tipo',        k:'Segmento',                    l:'Segmento',                    t:'text'},
-  {s:'Produto e Tipo',        k:'Micro_Segmento',              l:'Micro Segmento',              t:'text'},
-  {s:'Produto e Tipo',        k:'Periodicidade_contratacoes',  l:'Periodicidade Contratações',  t:'text'},
-  // ── Gestão e Responsáveis ──────────────────────────────────────────────────
-  {s:'Gestão e Responsáveis', k:'Pedra',                       l:'Pedra',                       t:'text'},
-  {s:'Gestão e Responsáveis', k:'Responsavel_Pedra',           l:'Responsável Pedra',           t:'text'},
-  {s:'Gestão e Responsáveis', k:'Etapa_Processo',              l:'Etapa do Processo',           t:'text'},
-  {s:'Gestão e Responsáveis', k:'Relacionamento_Cliente',      l:'Rel. Cliente',                t:'select', o:_rel},
-  {s:'Gestão e Responsáveis', k:'Relacionamento_Cliente_EB',   l:'Rel. Cliente EB',             t:'select', o:_rel},
-  {s:'Gestão e Responsáveis', k:'Relacionamento_Candidato',    l:'Rel. Candidato',              t:'select', o:_rel},
-  {s:'Gestão e Responsáveis', k:'Bitrix24_Iniciado',           l:'Bitrix24 Iniciado',           t:'select', o:_yn},
-  // ── Acompanhamento ─────────────────────────────────────────────────────────
-  {s:'Acompanhamento',        k:'Farol_Vermelho',              l:'Farol Vermelho',              t:'select', o:_yn},
-  {s:'Acompanhamento',        k:'Motivos_Celebrar',            l:'Motivos p/ Celebrar',         t:'textarea', w:true},
-  {s:'Acompanhamento',        k:'Devemos_Cuidar',              l:'Devemos Cuidar',              t:'textarea', w:true},
-  {s:'Acompanhamento',        k:'Resumo_Semanal',              l:'Resumo Semanal',              t:'textarea', w:true},
-  // ── Vagas ─────────────────────────────────────────────────────────────────
-  {s:'Vagas',                 k:'Vagas_Vendidas',              l:'Vendidas',                    t:'number'},
-  {s:'Vagas',                 k:'Vagas_Trabalhadas',           l:'Trabalhadas',                 t:'number'},
-  {s:'Vagas',                 k:'Vagas_Fechadas',              l:'Fechadas',                    t:'number'},
-  {s:'Vagas',                 k:'Vagas_Extras',                l:'Extras',                      t:'number'},
-  {s:'Vagas',                 k:'Vagas_Canceladas',            l:'Canceladas',                  t:'number'},
-  {s:'Vagas',                 k:'Vagas_Nao_Fechadas',          l:'Não Fechadas',                t:'number'},
-  // ── Candidatos e Atração ───────────────────────────────────────────────────
-  {s:'Candidatos e Atração',  k:'Pessoas_Inscritas',           l:'Pessoas Inscritas',           t:'number'},
-  {s:'Candidatos e Atração',  k:'Dentro_Perfil',               l:'Dentro do Perfil',            t:'number'},
-  {s:'Candidatos e Atração',  k:'Data_Live',                   l:'Data Live',                   t:'date'},
-  {s:'Candidatos e Atração',  k:'Horario_Live',                l:'Horário Live',                t:'text'},
-  {s:'Candidatos e Atração',  k:'_1a_Prospeccao',              l:'1ª Prospecção',               t:'text'},
-  {s:'Candidatos e Atração',  k:'_2a_Prospeccao',              l:'2ª Prospecção',               t:'text'},
-  {s:'Candidatos e Atração',  k:'_3a_Prospeccao',              l:'3ª Prospecção',               t:'text'},
-  // ── Assessments e Testes ───────────────────────────────────────────────────
-  {s:'Assessments e Testes',  k:'Assessments_Utilizados',      l:'Assessments Utilizados',      t:'text', w:true},
-  {s:'Assessments e Testes',  k:'Inicio_Testes',               l:'Início Testes',               t:'date'},
-  {s:'Assessments e Testes',  k:'Termino_Testes',              l:'Término Testes',              t:'date'},
-  {s:'Assessments e Testes',  k:'Inicio_Ranking',              l:'Início Ranking',              t:'date'},
-  {s:'Assessments e Testes',  k:'Termino_Ranking',             l:'Término Ranking',             t:'date'},
-  // ── Etapas de Avaliação 1–5 ───────────────────────────────────────────────
-  ...[1,2,3,4,5].flatMap(n=>[
-    {s:'Etapas de Avaliação', k:`Etapa${n}_Tipo`,              l:'Tipo',                        t:'select', o:_tpEtapa, etapa:n},
-    {s:'Etapas de Avaliação', k:`Etapa${n}_Posicao`,           l:'Posição',                     t:'select', o:_pos,     etapa:n},
-    {s:'Etapas de Avaliação', k:`Nome_Etapa${n}`,              l:'Nome',                        t:'text',   etapa:n},
-    {s:'Etapas de Avaliação', k:`Qtdd_Sala_Dia_Etapa${n}`,     l:'Qtdd Sala/Dia',               t:'number', etapa:n},
-    {s:'Etapas de Avaliação', k:`Data_Inicio_Etapa${n}`,       l:'Início',                      t:'date',   etapa:n},
-    {s:'Etapas de Avaliação', k:`Data_Termino_Etapa${n}`,      l:'Término',                     t:'date',   etapa:n},
-    {s:'Etapas de Avaliação', k:`Desafios_Etapa${n}`,          l:'Desafios',                    t:'textarea', w:true, etapa:n},
-    {s:'Etapas de Avaliação', k:`Indicadores_Etapa${n}`,       l:'Indicadores',                 t:'textarea', w:true, etapa:n},
-  ]),
-  // ── Programa ──────────────────────────────────────────────────────────────
-  {s:'Programa',              k:'Data_Inicio_Programa',        l:'Início do Programa',          t:'date'},
-  {s:'Programa',              k:'Data_Termino_Programa',       l:'Término do Programa',         t:'date'},
-  {s:'Programa',              k:'Duracao_do_programa',         l:'Duração',                     t:'text'},
-  {s:'Programa',              k:'Ha_quanto_tempo_existe_o_programa', l:'Tempo de Existência',   t:'text'},
-  {s:'Programa',              k:'Headcount',                   l:'Headcount',                   t:'number'},
-  {s:'Programa',              k:'Cargo_no_final_do_programa',  l:'Cargo Final',                 t:'text'},
-  {s:'Programa',              k:'Pct_efetivacao_estagiarios',  l:'% Efetivação Estagiários',    t:'number'},
-  {s:'Programa',              k:'Tem_etapa_presencial',        l:'Tem Etapa Presencial?',       t:'select', o:_yn},
-  {s:'Programa',              k:'Empresa_arcou_com_custos',    l:'Empresa Arcou c/ Custos?',    t:'select', o:_yn},
-  {s:'Programa',              k:'Politica_de_custos',          l:'Política de Custos (presencial)', t:'text', w:true},
-  {s:'Programa',              k:'Beneficios',                  l:'Benefícios',                  t:'textarea', w:true},
-  {s:'Programa',              k:'Auxilio_mudanca',             l:'Auxílio Mudança',             t:'text', w:true},
-  {s:'Programa',              k:'Trilha_de_Desenvolvimento',   l:'Trilha de Desenvolvimento',   t:'textarea', w:true},
-  // ── Pesquisas ─────────────────────────────────────────────────────────────
-  {s:'Pesquisas',             k:'Envio_Pesquisa_Cliente',      l:'Envio Pesquisa Cliente',      t:'date'},
-  {s:'Pesquisas',             k:'Resposta_Pesquisa_Cliente',   l:'Resposta Pesquisa Cliente',   t:'date'},
-  {s:'Pesquisas',             k:'Status_Pesquisa_Cliente',     l:'Status Pesquisa Cliente',     t:'select', o:_stPes},
-  {s:'Pesquisas',             k:'Status_Pesquisa_Candidato',   l:'Status Pesquisa Candidato',   t:'select', o:_stPes},
-  {s:'Pesquisas',             k:'NPS_cliente_1',               l:'NPS Cliente 1',               t:'number'},
-  {s:'Pesquisas',             k:'NPS_cliente_2',               l:'NPS Cliente 2',               t:'number'},
-  {s:'Pesquisas',             k:'NPS_cliente_3',               l:'NPS Cliente 3',               t:'number'},
-  // ── Nicho e Perfil ────────────────────────────────────────────────────────
-  {s:'Nicho e Perfil',        k:'Processo_para_nicho',         l:'Processo para Nicho?',        t:'select', o:_yn},
-  {s:'Nicho e Perfil',        k:'Qual_nicho',                  l:'Qual Nicho?',                 t:'text'},
-  {s:'Nicho e Perfil',        k:'Exeriencia_profissional',     l:'Exige Exp. Profissional?',    t:'select', o:_yn},
-  {s:'Nicho e Perfil',        k:'Exeperiencia_Qual',           l:'Qual Experiência?',           t:'text'},
-  {s:'Nicho e Perfil',        k:'Experiencia_Duracao',         l:'Duração Experiência',         t:'text'},
-  {s:'Nicho e Perfil',        k:'Processo_Afirmativo',         l:'Processo Afirmativo?',        t:'select', o:_yn},
-  // ── Diversidade e Inclusão ────────────────────────────────────────────────
-  {s:'Diversidade e Inclusão',k:'Meta_etnico_racial',          l:'Meta Étnico Racial',          t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_feminino',               l:'Meta Feminino',               t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_PcD',                    l:'Meta PcD',                    t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_LGBTQIA',                l:'Meta LGBTQIA+',               t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_outro_publico_especifico',l:'Meta Outro Público',          t:'text'},
-  {s:'Diversidade e Inclusão',k:'Pct_meta_etnia',              l:'% Meta Etnia',                t:'number'},
-  {s:'Diversidade e Inclusão',k:'Pct_meta_feminino',           l:'% Meta Feminino',             t:'number'},
-  {s:'Diversidade e Inclusão',k:'Pct_meta_pcd',                l:'% Meta PcD',                  t:'number'},
-  {s:'Diversidade e Inclusão',k:'Pct_meta_LGBTQIA',            l:'% Meta LGBTQIA+',             t:'number'},
-  {s:'Diversidade e Inclusão',k:'Pct_meta_outro_publico',      l:'% Meta Outro Público',        t:'number'},
-  {s:'Diversidade e Inclusão',k:'Acoes_para_metas',            l:'Ações p/ Metas',              t:'textarea', w:true},
-  {s:'Diversidade e Inclusão',k:'Parceiro_diversidade',        l:'Parceiro Diversidade',        t:'textarea', w:true},
-  {s:'Diversidade e Inclusão',k:'Flexibilizacao_criterios_internos', l:'Flex. Critérios Internos?', t:'select', o:_yn},
-  {s:'Diversidade e Inclusão',k:'Criterios_Flexibilizados_Internos', l:'Critérios Flexibilizados',  t:'text', w:true},
-];
-// Section order (derived)
-const PULSE_SECTIONS = [...new Set(PULSE_FIELDS.map(f=>f.s))];
-
 const SP_SELECT      = [
-  'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
-  'KA',...HEAD_KEYS,...ANALYST_KEYS,
+  'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario',
+  ...ANALYST_KEYS,
   ...PHASES.flatMap(ph=>[`Inicio_${ph.key}`,`Fim_${ph.key}`,`Analista_${ph.key}_PCT`]),
-  ...PULSE_FIELDS.map(f=>f.k),
 ].join(',');
 
 // ─── Date Helpers (always LOCAL midnight — never UTC) ──────────────────────────
@@ -294,39 +172,24 @@ function parseSPItem(item) {
       pcts:  analysts.map(()=>perEach),   // equal split — user can adjust
     };
   });
-  // Populate pulseData from PULSE_FIELDS — date fields converted to input format
-  const pulseData = {};
-  PULSE_FIELDS.forEach(f => {
-    const raw = item[f.k];
-    pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(raw)||'') : (raw!==undefined&&raw!==null ? String(raw) : '');
-  });
   return {
-    id:       String(item.Id||item.indice||'r'+Math.random()),
-    spId:     item.Id||item.id||null,
-    indice:   Number(item.indice)||0,
-    title:    item.Nome_Programa||item.Title||'Sem título',
-    client:   item.Cliente||'',
-    status:   item.Status_Programa||'',
-    ciclo:    item.Ciclo_Orcamentario||'',
-    ka:       item.KA||'',
-    head1:    item.Head_1||'',
-    head2:    item.Head_2||'',
-    head3:    item.Head_3||'',
-    source:   'sharepoint',
+    id:     String(item.Id||item.indice||'r'+Math.random()),
+    spId:   item.Id||item.id||null,
+    indice: Number(item.indice)||0,
+    title:  item.Nome_Programa||item.Title||'Sem título',
+    client: item.Cliente||'',
+    status: item.Status_Programa||'',
+    ciclo:  item.Ciclo_Orcamentario||'',
+    source: 'sharepoint',
     analysts,
     phases,
-    pulseData,
   };
 }
 
 // ─── Build SP PATCH/POST payload from internal project ────────────────────────
 function buildSPPayload(project) {
   const payload = {};
-  if (project.ciclo  !== undefined) payload['Ciclo_Orcamentario'] = project.ciclo||null;
-  if (project.ka     !== undefined) payload['KA']     = project.ka||null;
-  if (project.head1  !== undefined) payload['Head_1'] = project.head1||null;
-  if (project.head2  !== undefined) payload['Head_2'] = project.head2||null;
-  if (project.head3  !== undefined) payload['Head_3'] = project.head3||null;
+  if (project.ciclo !== undefined) payload['Ciclo_Orcamentario'] = project.ciclo||null;
   for (let i=0; i<MAX_ANALYSTS; i++) {
     payload[`Analista_${i+1}`] = project.analysts[i]||null;
   }
@@ -488,10 +351,7 @@ function _spListBase(siteUrl, listName) {
   return `${siteUrl}/_api/web/GetList('${rel}/Lists/${listName}')`;
 }
 async function fetchSPList(token, siteUrl, listName) {
-  // Sem $select — evita limite de tamanho de URL com muitos campos customizados.
-  // O SP retorna todos os campos do item; parseSPItem lida com campos ausentes.
-  const base = _spListBase(siteUrl, listName);
-  let items=[], url=`${base}/items?$top=200`;
+  let items=[], url=`${_spListBase(siteUrl,listName)}/items?$select=${SP_SELECT}&$top=200`;
   while (url) {
     const json = await spFetch(token, url);
     items = items.concat(json.value||[]);
@@ -627,7 +487,6 @@ function App() {
   const [cicloFilter,      setCicloFilter]      = useState('');
   const [showEdit,         setShowEdit]         = useState(null);   // project obj or 'new'
   const [showAnalystDetail,setShowAnalystDetail] = useState(null);
-  const [module,           setModule]           = useState(null);   // null=home | 'gestao' | 'pulse'
 
   // Only persist config locally when it wasn't baked into APP_CONFIG
   useEffect(()=>{ if (!APP_CONFIG.clientId) saveLocal({clientId,tenantId}); },[clientId,tenantId]);
@@ -774,59 +633,6 @@ function App() {
     }
   },[authState, distData]);
 
-  // ── Save Pulse (full-field PATCH from PulseView) ──
-  const savePulse = useCallback(async(project)=>{
-    if (!authState.isAuth || !project.spId) return;
-    setSaving(true); setSaveMsg(null);
-    try {
-      const payload = {
-        Nome_Programa:      project.title||null,
-        Cliente:            project.client||null,
-        Status_Programa:    project.status||null,
-        Ciclo_Orcamentario: project.ciclo||null,
-        KA:                 project.ka||null,
-        Head_1:             project.head1||null,
-        Head_2:             project.head2||null,
-        Head_3:             project.head3||null,
-      };
-      // Pulse extra fields — date fields converted back to SP ISO format
-      if (project.pulseData) {
-        PULSE_FIELDS.forEach(f=>{
-          const v = project.pulseData[f.k];
-          payload[f.k] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (v||null);
-        });
-      }
-      for (let i=0; i<MAX_ANALYSTS; i++) {
-        payload[`Analista_${i+1}`] = project.analysts[i]||null;
-      }
-      PHASES.forEach(ph=>{
-        const phase = project.phases[ph.key]||{};
-        const total = totalPhasePct(phase);
-        payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
-        payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
-        payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
-      });
-      await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
-      // Update per-analyst distributions in dist file
-      const newDist = {
-        distributions: {...(distData.distributions||{})},
-        localProjects:  [...(distData.localProjects||[])],
-      };
-      const distEntry={};
-      PHASES.forEach(ph=>{ distEntry[ph.key]=project.phases[ph.key]?.pcts||[]; });
-      newDist.distributions[String(project.spId)] = distEntry;
-      await saveDistFile(authState.token, SP_SITE_URL, newDist);
-      setDistData(newDist);
-      setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
-      setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
-    } catch(e) {
-      setSaveMsg({type:'error', text:'Erro ao salvar: '+e.message});
-    } finally {
-      setSaving(false);
-      setTimeout(()=>setSaveMsg(null), 5000);
-    }
-  },[authState, distData]);
-
   // ── Suggestions ──
   function getSuggestions(proj, phKey) {
     const ph = proj.phases[phKey];
@@ -875,22 +681,7 @@ function App() {
     );
   }
 
-  // ── Authenticated: Home screen (module selector) ──
-  if (!module) {
-    return (
-      <HomeScreen
-        onSelect={setModule}
-        authState={authState}
-        onSignOut={signOut}
-        loading={loading}
-        onRefresh={()=>loadAll(authState.token)}
-        error={error}
-        onClearError={()=>setError('')}
-      />
-    );
-  }
-
-  // ── Authenticated: helper (used in Gestão only) ──
+  // ── Authenticated: full app ──
   function addAnalystToProject(proj, analyst) {
     const updated={...proj,analysts:[...proj.analysts,analyst]};
     PHASES.forEach(ph=>{
@@ -899,49 +690,19 @@ function App() {
     setShowEdit(updated);
   }
 
-  // ── Shared chrome ──
-  const saveMsgBanner = saveMsg && (
-    <div className={`slide-down sticky top-0 z-40 text-center py-2 text-sm font-medium ${
-      saveMsg.type==='success'?'bg-emerald-600 text-white':
-      saveMsg.type==='error'?'bg-red-600 text-white':'bg-amber-500 text-white'}`}>
-      {saveMsg.text}
-    </div>
-  );
-  const errorBanner = error && (
-    <div className="mt-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex items-start gap-2 mx-4">
-      <span className="flex-1 whitespace-pre-wrap">{error}</span>
-      <button onClick={()=>setError('')} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
-    </div>
-  );
-
-  // ── Pulse module ──
-  if (module==='pulse') {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <AppHeader view={view} setView={setView} authState={authState}
-          onSignOut={signOut} projectCount={projects.length} loading={loading}
-          onRefresh={()=>loadAll(authState.token)} module={module} onHome={()=>setModule(null)}/>
-        {saveMsgBanner}
-        {errorBanner}
-        <PulseView
-          projects={projects}
-          ciclos={ciclos}
-          allAnalysts={analysts}
-          onSave={savePulse}
-          saving={saving}
-        />
-      </div>
-    );
-  }
-
-  // ── Gestão module ──
   return (
     <div className="min-h-screen bg-slate-50">
       <AppHeader view={view} setView={setView} authState={authState}
         onSignOut={signOut} projectCount={projects.length} loading={loading}
-        onRefresh={()=>loadAll(authState.token)} module={module} onHome={()=>setModule(null)}/>
+        onRefresh={()=>loadAll(authState.token)}/>
 
-      {saveMsgBanner}
+      {saveMsg&&(
+        <div className={`slide-down sticky top-0 z-40 text-center py-2 text-sm font-medium ${
+          saveMsg.type==='success'?'bg-emerald-600 text-white':
+          saveMsg.type==='error'?'bg-red-600 text-white':'bg-amber-500 text-white'}`}>
+          {saveMsg.text}
+        </div>
+      )}
 
       <main className="max-w-screen-2xl mx-auto px-4 pb-10">
         {ciclos.length>0&&(
@@ -957,7 +718,7 @@ function App() {
         )}
         {error&&(
           <div className="mt-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex items-start gap-2">
-            <span className="flex-1 whitespace-pre-wrap">{error}</span>
+            <span className="flex-1">{error}</span>
             <button onClick={()=>setError('')} className="text-red-400 hover:text-red-600">✕</button>
           </div>
         )}
@@ -998,8 +759,8 @@ function App() {
   );
 }
 
-// ─── Header (only shown when authenticated & module selected) ─────────────────
-function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefresh,module,onHome}) {
+// ─── Header (only shown when authenticated) ───────────────────────────────────
+function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefresh}) {
   const navs=[
     {k:'dashboard',  label:'📊 Dashboard'},
     {k:'monthly',    label:'📅 Grade Mensal'},
@@ -1010,19 +771,10 @@ function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefr
     <header className="bg-white border-b border-slate-200 shadow-sm mb-4 sticky top-0 z-30">
       <div className="max-w-screen-2xl mx-auto px-4 py-2.5 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 mr-1 shrink-0">
-          {onHome&&(
-            <button onClick={onHome}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-600 border border-slate-200 hover:border-indigo-300 px-2 py-1 rounded-lg transition mr-1">
-              ← Início
-            </button>
-          )}
           <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">CT</div>
-          <span className="text-base font-bold text-slate-800">
-            {module==='pulse'?'Pulse':module==='gestao'?'Gestão':'Alocação'}
-          </span>
-          {module==='gestao'&&projectCount>0&&<span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">{projectCount} proj.</span>}
+          <span className="text-base font-bold text-slate-800">Alocação</span>
+          {projectCount>0&&<span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">{projectCount} proj.</span>}
         </div>
-        {module==='gestao'&&(
         <nav className="flex gap-1 flex-wrap flex-1">
           {navs.map(n=>(
             <button key={n.k} onClick={()=>setView(n.k)}
@@ -1031,8 +783,6 @@ function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefr
             </button>
           ))}
         </nav>
-        )}
-        {module==='pulse'&&<div className="flex-1"/>}
         <div className="flex items-center gap-2 ml-auto shrink-0">
           <button onClick={onRefresh} disabled={loading} title="Atualizar dados do SharePoint"
             className="text-xs text-slate-400 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 px-2.5 py-1.5 rounded-lg transition disabled:opacity-40">
@@ -1051,88 +801,6 @@ function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefr
         </div>
       </div>
     </header>
-  );
-}
-
-// ─── Home Screen (module selector, shown after login) ────────────────────────
-function HomeScreen({onSelect,authState,onSignOut,loading,onRefresh,error,onClearError}) {
-  const firstName = (authState.user||'').split(' ')[0]||'Usuário';
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50 flex flex-col">
-      {/* Top bar */}
-      <header className="bg-white border-b border-slate-200 shadow-sm">
-        <div className="max-w-screen-xl mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-xs font-bold">CT</div>
-            <span className="text-base font-bold text-slate-800">Alocação de Analistas</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={onRefresh} disabled={loading} title="Atualizar dados"
-              className="text-xs text-slate-400 hover:text-indigo-600 border border-slate-200 px-2.5 py-1.5 rounded-lg transition disabled:opacity-40">
-              {loading?'⏳':'🔄'}
-            </button>
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-medium text-slate-700 leading-tight">{authState.user}</p>
-              <p className="text-xs text-slate-400 leading-tight">Microsoft 365</p>
-            </div>
-            <button onClick={onSignOut}
-              className="text-xs text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 px-2.5 py-1.5 rounded-lg transition">
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Error banner */}
-      {error&&(
-        <div className="bg-red-50 border-b border-red-100 px-6 py-3 flex items-start gap-2">
-          <span className="text-red-600 text-sm flex-1 whitespace-pre-wrap">{error}</span>
-          <button onClick={onClearError} className="text-red-400 hover:text-red-600 shrink-0">✕</button>
-        </div>
-      )}
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-slate-900">Olá, {firstName}!</h1>
-          <p className="text-slate-500 mt-2 text-sm">Selecione o módulo que deseja acessar.</p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
-
-          {/* Pulse card */}
-          <button onClick={()=>onSelect('pulse')}
-            className="group bg-white rounded-2xl border-2 border-slate-200 hover:border-indigo-400 hover:shadow-xl transition-all p-8 text-left">
-            <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center text-3xl mb-5 group-hover:bg-indigo-200 transition-colors">
-              📋
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Pulse</h2>
-            <p className="text-sm text-slate-500 leading-relaxed">
-              Visualize e edite os registros da List_Pulse. Filtre por ciclo, analista, Head, KA, cliente ou nome do processo.
-            </p>
-            <div className="mt-6 flex items-center text-sm font-semibold text-indigo-600 group-hover:text-indigo-700">
-              Abrir Pulse <span className="ml-1.5">→</span>
-            </div>
-          </button>
-
-          {/* Gestão card */}
-          <button onClick={()=>onSelect('gestao')}
-            className="group bg-white rounded-2xl border-2 border-slate-200 hover:border-violet-400 hover:shadow-xl transition-all p-8 text-left">
-            <div className="w-14 h-14 bg-violet-100 rounded-2xl flex items-center justify-center text-3xl mb-5 group-hover:bg-violet-200 transition-colors">
-              📊
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-2">Gestão</h2>
-            <p className="text-sm text-slate-500 leading-relaxed">
-              Gerencie a alocação de analistas por projeto e fase. Dashboard, grade mensal, sugestões e edição de projetos.
-            </p>
-            <div className="mt-6 flex items-center text-sm font-semibold text-violet-600 group-hover:text-violet-700">
-              Abrir Gestão <span className="ml-1.5">→</span>
-            </div>
-          </button>
-        </div>
-      </main>
-
-      <p className="text-center text-xs text-slate-300 pb-6">Cia de Talentos · Gestão de Alocação</p>
-    </div>
   );
 }
 
@@ -1995,453 +1663,6 @@ function AnalystDetailModal({analyst,allProjects,onClose}) {
               </table>
             </div>
           ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Pulse View ───────────────────────────────────────────────────────────────
-function PulseView({projects, ciclos, allAnalysts, onSave, saving}) {
-  const [filters, setFilters] = useState({ciclo:'', analista:'', head:'', ka:'', client:'', nome:''});
-  const [editProject, setEditProject] = useState(null);
-
-  // Only SP projects are editable via Pulse
-  const spProjects = projects.filter(p=>p.source==='sharepoint');
-
-  const filtered = useMemo(()=>spProjects.filter(p=>{
-    if (filters.ciclo   && p.ciclo!==filters.ciclo) return false;
-    if (filters.client  && !(p.client||'').toLowerCase().includes(filters.client.toLowerCase())) return false;
-    if (filters.nome    && !(p.title||'').toLowerCase().includes(filters.nome.toLowerCase())) return false;
-    if (filters.ka      && !(p.ka||'').toLowerCase().includes(filters.ka.toLowerCase())) return false;
-    if (filters.analista && !p.analysts.some(a=>(a||'').toLowerCase().includes(filters.analista.toLowerCase()))) return false;
-    if (filters.head    && ![p.head1,p.head2,p.head3].some(h=>(h||'').toLowerCase().includes(filters.head.toLowerCase()))) return false;
-    return true;
-  }), [spProjects, filters]);
-
-  const hasFilters = Object.values(filters).some(Boolean);
-
-  async function handleSave(updated) {
-    await onSave(updated);
-    setEditProject(null);
-  }
-
-  if (spProjects.length===0) return (
-    <div className="mt-16 text-center text-slate-400">
-      <p className="text-4xl mb-3">📋</p>
-      <p className="text-lg font-medium">Nenhum registro da List_Pulse carregado.</p>
-    </div>
-  );
-
-  return (
-    <div className="fade-in max-w-screen-2xl mx-auto px-4 pb-10 mt-4 space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-lg font-bold text-slate-800">List_Pulse</h2>
-        <span className="text-xs text-slate-500">{filtered.length} de {spProjects.length} registros</span>
-      </div>
-
-      {/* Filter bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Ciclo Orç.</label>
-            <select value={filters.ciclo} onChange={e=>setFilters(f=>({...f,ciclo:e.target.value}))}
-              className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-200 bg-white">
-              <option value="">Todos</option>
-              {ciclos.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          {[
-            {key:'nome',     label:'Nome do Processo'},
-            {key:'client',   label:'Cliente'},
-            {key:'ka',       label:'KA'},
-            {key:'head',     label:'Head (1/2/3)'},
-            {key:'analista', label:'Analista'},
-          ].map(f=>(
-            <div key={f.key}>
-              <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-              <input value={filters[f.key]} onChange={e=>setFilters(ff=>({...ff,[f.key]:e.target.value}))}
-                placeholder="Buscar..."
-                className="w-full border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-200"/>
-            </div>
-          ))}
-        </div>
-        {hasFilters&&(
-          <button onClick={()=>setFilters({ciclo:'',analista:'',head:'',ka:'',client:'',nome:''})}
-            className="mt-3 text-xs text-indigo-600 hover:text-indigo-800 font-medium">
-            ✕ Limpar filtros
-          </button>
-        )}
-      </div>
-
-      {/* Results table */}
-      <div className="scroll-table bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <table className="min-w-full text-xs border-collapse">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">#</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 min-w-52">Nome do Processo</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Cliente</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Status</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Ciclo</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">KA</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 1</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 2</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 3</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 min-w-40">Analistas</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-slate-500 sticky right-0 bg-slate-50"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filtered.length===0&&(
-              <tr><td colSpan={11} className="text-center text-slate-400 py-10">Nenhum registro encontrado.</td></tr>
-            )}
-            {filtered.map(proj=>(
-              <tr key={proj.id} className="hover:bg-slate-50 transition">
-                <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{proj.indice}</td>
-                <td className="px-3 py-2 font-medium text-slate-800">{proj.title}</td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.client||'—'}</td>
-                <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={proj.status}/></td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.ciclo||'—'}</td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.ka||'—'}</td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.head1||'—'}</td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.head2||'—'}</td>
-                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{proj.head3||'—'}</td>
-                <td className="px-3 py-2 text-slate-500 max-w-xs truncate">
-                  {proj.analysts.filter(Boolean).join(', ')||'—'}
-                </td>
-                <td className="px-3 py-2 text-center sticky right-0 bg-white border-l border-slate-100">
-                  <button onClick={()=>setEditProject(proj)}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition whitespace-nowrap">
-                    Editar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {editProject&&(
-        <PulseEditModal
-          project={editProject}
-          allAnalysts={allAnalysts}
-          onSave={handleSave}
-          onClose={()=>setEditProject(null)}
-          saving={saving}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── Pulse Edit Modal (all List_Pulse fields, collapsible sections) ───────────
-function PulseEditModal({project, allAnalysts, onSave, onClose, saving}) {
-  // Core fields
-  const [title,    setTitle]    = useState(project?.title||'');
-  const [client,   setClient]   = useState(project?.client||'');
-  const [status,   setStatus]   = useState(project?.status||'');
-  const [ciclo,    setCiclo]    = useState(project?.ciclo||'');
-  const [ka,       setKa]       = useState(project?.ka||'');
-  const [head1,    setHead1]    = useState(project?.head1||'');
-  const [head2,    setHead2]    = useState(project?.head2||'');
-  const [head3,    setHead3]    = useState(project?.head3||'');
-  // Analysts & phases
-  const [analysts, setAnalysts] = useState(project?.analysts ? [...project.analysts] : []);
-  const [phases,   setPhases]   = useState(()=>{
-    const p={}; PHASES.forEach(ph=>{
-      const ex=project?.phases?.[ph.key];
-      p[ph.key]={start:fmtDateForInput(ex?.start)||'',end:fmtDateForInput(ex?.end)||'',pcts:ex?.pcts?[...ex.pcts]:[]};
-    }); return p;
-  });
-  // Pulse extra fields
-  const [pulseData, setPulseData] = useState(()=>{
-    const d={}; PULSE_FIELDS.forEach(f=>{d[f.k]=project?.pulseData?.[f.k]||'';}); return d;
-  });
-  // Section collapse state — start all collapsed except first two
-  const [collapsed, setCollapsed] = useState(()=>{
-    const c={};
-    PULSE_SECTIONS.forEach((s,i)=>{ c[s]=i>=2; }); // first 2 sections open, rest collapsed
-    c['_identificacao_basica'] = false;
-    c['Analistas e Fases'] = false;
-    return c;
-  });
-
-  function toggleSec(s) { setCollapsed(c=>({...c,[s]:!c[s]})); }
-  function updatePulse(k,v) { setPulseData(p=>({...p,[k]:v})); }
-
-  function syncPctsLength(newA,prevPh){
-    const u={}; PHASES.forEach(ph=>{ const c=prevPh[ph.key].pcts||[]; u[ph.key]={...prevPh[ph.key],pcts:newA.map((_,i)=>c[i]||0)}; }); return u;
-  }
-  function addAnalyst(){ const a=[...analysts,'']; setAnalysts(a); setPhases(p=>syncPctsLength(a,p)); }
-  function removeAnalyst(idx){
-    const a=analysts.filter((_,i)=>i!==idx); setAnalysts(a);
-    setPhases(p=>{ const u={}; PHASES.forEach(ph=>{ const pc=[...p[ph.key].pcts]; pc.splice(idx,1); u[ph.key]={...p[ph.key],pcts:pc}; }); return u; });
-  }
-  function updAnalystName(idx,v){ setAnalysts(p=>p.map((a,i)=>i===idx?v:a)); }
-  function updPhaseField(ph,f,v){ setPhases(p=>({...p,[ph]:{...p[ph],[f]:v}})); }
-  function updPct(ph,idx,v){ setPhases(p=>{ const pc=[...p[ph].pcts]; pc[idx]=Math.max(0,parseFloat(v)||0); return {...p,[ph]:{...p[ph],pcts:pc}}; }); }
-
-  function handleSave(){
-    if (!title.trim()) return;
-    const fA=analysts.filter(a=>a.trim());
-    const fPh={}; PHASES.forEach(ph=>{ const pc=analysts.map((a,i)=>a.trim()?phases[ph.key].pcts[i]||0:null).filter(p=>p!==null); fPh[ph.key]={...phases[ph.key],pcts:pc}; });
-    onSave({...project, title:title.trim(), client:client.trim(), status, ciclo:ciclo.trim(),
-      ka:ka.trim(), head1:head1.trim(), head2:head2.trim(), head3:head3.trim(),
-      analysts:fA, phases:fPh, pulseData});
-  }
-
-  // Shared input classes
-  const cls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200';
-
-  // Render a single PULSE_FIELDS entry
-  function renderPulseField(f){
-    const v=pulseData[f.k]||'';
-    if (f.t==='select') return (
-      <select value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}>
-        <option value="">—</option>
-        {(f.o||[]).map(op=><option key={op} value={op}>{op}</option>)}
-      </select>
-    );
-    if (f.t==='textarea') return <textarea value={v} onChange={e=>updatePulse(f.k,e.target.value)} rows={3} className={cls+' resize-none'}/>;
-    if (f.t==='date') return <input type="date" value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}/>;
-    if (f.t==='number') return <input type="number" value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}/>;
-    return <input type="text" value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}/>;
-  }
-
-  // Section header button
-  function SecHeader({id,label,icon,count}){
-    const open=!collapsed[id];
-    return (
-      <button onClick={()=>toggleSec(id)} className="w-full flex items-center gap-2 text-left py-1">
-        <span className="text-sm">{icon}</span>
-        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest flex-1">{label}</span>
-        {count&&<span className="text-xs text-slate-400">{count} campos</span>}
-        <span className={`text-slate-400 text-xs transition-transform ${open?'rotate-180':''}`}>▾</span>
-      </button>
-    );
-  }
-
-  // Render a section from PULSE_FIELDS (excluding Etapas)
-  function renderSection(sLabel){
-    const fields=PULSE_FIELDS.filter(f=>f.s===sLabel&&!f.etapa);
-    if (!fields.length) return null;
-    return (
-      <section key={sLabel} className="border border-slate-200 rounded-xl overflow-hidden">
-        <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-          <SecHeader id={sLabel} label={sLabel} count={fields.length}/>
-        </div>
-        {!collapsed[sLabel]&&(
-          <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {fields.map(f=>(
-              <div key={f.k} className={f.w?'sm:col-span-2':''}>
-                <label className="block text-xs font-medium text-slate-600 mb-1">{f.l}</label>
-                {renderPulseField(f)}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    );
-  }
-
-  const normalSections = PULSE_SECTIONS.filter(s=>s!=='Etapas de Avaliação');
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col mx-4"
-        onClick={e=>e.stopPropagation()}>
-
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between shrink-0 rounded-t-2xl">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">Editar — Pulse</h2>
-            <p className="text-xs text-slate-400 mt-0.5">#{project?.indice} · {project?.title}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button onClick={()=>setCollapsed(c=>{const n={};Object.keys(c).forEach(k=>{n[k]=false;});return n;})}
-              className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 px-2 py-1 rounded-lg">
-              Expandir tudo
-            </button>
-            <button onClick={onClose} className="text-slate-400 hover:text-red-500 text-xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100">✕</button>
-          </div>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-
-          {/* ── Identificação Básica ── */}
-          <section className="border border-slate-200 rounded-xl overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-              <SecHeader id="_identificacao_basica" label="Identificação Básica" icon="🏷️"/>
-            </div>
-            {!collapsed['_identificacao_basica']&&(
-              <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Nome do Processo *</label>
-                  <input value={title} onChange={e=>setTitle(e.target.value)} className={cls} placeholder="Nome do programa"/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Cliente</label>
-                  <input value={client} onChange={e=>setClient(e.target.value)} className={cls}/>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Status do Programa</label>
-                  <select value={status} onChange={e=>setStatus(e.target.value)} className={cls}>
-                    <option value="">—</option>
-                    <option>Em andamento</option><option>Concluído</option>
-                    <option>Cancelado</option><option>Planejamento</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Ciclo Orçamentário</label>
-                  <input value={ciclo} onChange={e=>setCiclo(e.target.value)} className={cls} placeholder="Ex: 2026"/>
-                </div>
-                {/* Identificação PULSE_FIELDS */}
-                {PULSE_FIELDS.filter(f=>f.s==='Identificação').map(f=>(
-                  <div key={f.k} className={f.w?'sm:col-span-2':''}>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">{f.l}</label>
-                    {renderPulseField(f)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── Gestão e Responsáveis — includes KA / Head ── */}
-          <section className="border border-slate-200 rounded-xl overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-              <SecHeader id="Gestão e Responsáveis" label="Gestão e Responsáveis" icon="👥"/>
-            </div>
-            {!collapsed['Gestão e Responsáveis']&&(
-              <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">KA</label>
-                  <input value={ka} onChange={e=>setKa(e.target.value)} className={cls} placeholder="Nome do KA"/></div>
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Head 1</label>
-                  <input value={head1} onChange={e=>setHead1(e.target.value)} className={cls}/></div>
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Head 2</label>
-                  <input value={head2} onChange={e=>setHead2(e.target.value)} className={cls}/></div>
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">Head 3</label>
-                  <input value={head3} onChange={e=>setHead3(e.target.value)} className={cls}/></div>
-                {PULSE_FIELDS.filter(f=>f.s==='Gestão e Responsáveis').map(f=>(
-                  <div key={f.k} className={f.w?'sm:col-span-2':''}>
-                    <label className="block text-xs font-medium text-slate-600 mb-1">{f.l}</label>
-                    {renderPulseField(f)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── Remaining PULSE_FIELDS sections ── */}
-          {normalSections.filter(s=>s!=='Identificação'&&s!=='Gestão e Responsáveis').map(s=>renderSection(s))}
-
-          {/* ── Etapas de Avaliação ── */}
-          <section className="border border-slate-200 rounded-xl overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-              <SecHeader id="Etapas de Avaliação" label="Etapas de Avaliação" icon="📋" count="5 etapas"/>
-            </div>
-            {!collapsed['Etapas de Avaliação']&&(
-              <div className="divide-y divide-slate-100">
-                {[1,2,3,4,5].map(n=>{
-                  const ef=PULSE_FIELDS.filter(f=>f.etapa===n);
-                  return (
-                    <div key={n} className="px-4 py-3">
-                      <p className="text-xs font-bold text-indigo-600 mb-2">Etapa {n}</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {ef.map(f=>(
-                          <div key={f.k} className={f.w?'sm:col-span-2':''}>
-                            <label className="block text-xs font-medium text-slate-600 mb-1">{f.l}</label>
-                            {renderPulseField(f)}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          {/* ── Analistas e Fases ── */}
-          <section className="border border-slate-200 rounded-xl overflow-hidden">
-            <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-              <SecHeader id="Analistas e Fases" label="Analistas e Fases (Alocação)" icon="📊"/>
-            </div>
-            {!collapsed['Analistas e Fases']&&(
-              <div className="px-4 py-4 space-y-4">
-                {/* Analistas */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Analistas</p>
-                    <button onClick={addAnalyst} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition">
-                      + Adicionar
-                    </button>
-                  </div>
-                  {analysts.length===0
-                    ? <p className="text-slate-400 text-sm italic">Nenhum analista adicionado.</p>
-                    : <div className="space-y-2">
-                        {analysts.map((a,idx)=>(
-                          <div key={idx} className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400 w-20 shrink-0">Analista {idx+1}</span>
-                            <input value={a} onChange={e=>updAnalystName(idx,e.target.value)} list="pulseAnalystDL"
-                              className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-200"/>
-                            <button onClick={()=>removeAnalyst(idx)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 rounded-full text-lg shrink-0">×</button>
-                          </div>
-                        ))}
-                      </div>
-                  }
-                  <datalist id="pulseAnalystDL">{allAnalysts.map(a=><option key={a} value={a}/>)}</datalist>
-                </div>
-                {/* Fases */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Fases e %</p>
-                  {PHASES.map(ph=>{
-                    const phase=phases[ph.key]; const total=totalPhasePct(phase);
-                    return (
-                      <div key={ph.key} className="border border-slate-200 rounded-xl overflow-hidden">
-                        <div className="bg-slate-50 px-4 py-2 flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-slate-700 w-32 shrink-0">{ph.label}</span>
-                          <div className="flex items-center gap-1.5">
-                            <input type="date" value={phase.start} onChange={e=>updPhaseField(ph.key,'start',e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-300"/>
-                            <span className="text-slate-300 text-xs">→</span>
-                            <input type="date" value={phase.end} onChange={e=>updPhaseField(ph.key,'end',e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-300"/>
-                          </div>
-                          {total>0&&<span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${total>100?'bg-red-100 text-red-700':total>90?'bg-yellow-100 text-yellow-700':'bg-green-100 text-green-700'}`}>Total: {Math.round(total)}%</span>}
-                        </div>
-                        {analysts.length>0
-                          ? <div className="divide-y divide-slate-50">
-                              {analysts.map((a,idx)=>(
-                                <div key={idx} className="flex items-center gap-3 px-4 py-2">
-                                  <span className="text-xs text-slate-500 flex-1 truncate">{a||`Analista ${idx+1}`}</span>
-                                  <input type="number" min={0} max={200} step={5}
-                                    value={phase.pcts[idx]!==undefined?phase.pcts[idx]:''} onChange={e=>updPct(ph.key,idx,e.target.value)}
-                                    className="border border-slate-200 rounded-lg px-2 py-1 text-xs w-20 text-right focus:ring-1 focus:ring-indigo-300" placeholder="0"/>
-                                  <span className="text-xs text-slate-400">%</span>
-                                </div>
-                              ))}
-                            </div>
-                          : <p className="px-4 py-2 text-xs text-slate-400 italic">Adicione analistas acima.</p>
-                        }
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </section>
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3 shrink-0 rounded-b-2xl bg-white">
-          <p className="text-xs text-slate-400 mr-auto">💾 Salva no SharePoint (List_Pulse)</p>
-          <button onClick={onClose} className="border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 transition">Cancelar</button>
-          <button onClick={handleSave} disabled={!title.trim()||saving}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2">
-            {saving?'⏳ Salvando...':'💾 Salvar'}
-          </button>
         </div>
       </div>
     </div>
