@@ -428,7 +428,22 @@ function App() {
       ]);
       setDistData(dist);
       setProjects(mergeProjectsWithDist(spItems, dist));
-    } catch(e) { setError('Erro ao carregar dados: '+e.message); }
+    } catch(e) {
+      // Diagnostic: try to list all visible lists to find correct name
+      let diagMsg = 'Erro ao carregar dados: '+e.message;
+      try {
+        const diagUrl = `${SP_SITE_URL}/_api/web/lists?$select=Title,RootFolder/ServerRelativeUrl&$expand=RootFolder&$filter=Hidden eq false&$top=50`;
+        const diagRes = await fetch(diagUrl, {headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'}});
+        if (diagRes.ok) {
+          const diagJson = await diagRes.json();
+          const names = (diagJson.value||[]).map(l=>`"${l.Title}" (${l.RootFolder?.ServerRelativeUrl||''})`).join(' | ');
+          diagMsg += `\n\n📋 Listas encontradas no site:\n${names||'(nenhuma)'}`;
+        } else {
+          diagMsg += `\n\n⚠️ Sem acesso ao site (${diagRes.status}). Verifique permissões do app no Azure AD (AllSites.Read).`;
+        }
+      } catch(diagE) { diagMsg += '\n\n⚠️ Diagnóstico falhou: '+diagE.message; }
+      setError(diagMsg);
+    }
     finally { setLoading(false); }
   },[]);
 
