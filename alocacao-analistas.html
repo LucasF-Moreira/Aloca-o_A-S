@@ -296,13 +296,13 @@ const MOSKIT_SP_SCOPE  = 'https://ciadetalentos.sharepoint.com/.default';
 const MOSKIT_SITE_URL  = 'https://ciadetalentos.sharepoint.com/sites/Public';
 const MOSKIT_FILE_REL  = "/sites/Public/Documentos Partilhados/Desenvolvimento de Neg\u00f3cios/0 Back Office - DN/Relat\u00f3rio de Vendas/Base_Moskit.csv";
 const MOSKIT_COLS = [
-  {key:'ID',                          label:'ID',              fk:'id'},
-  {key:'Nome',                        label:'Nome',            fk:'nome'},
-  {key:'Produto Principal',           label:'Produto',         fk:'produto'},
-  {key:'Status',                      label:'Status',          fk:'status'},
-  {key:'Probabilidade de Fechamento', label:'Prob. Fechamento',fk:'prob'},
-  {key:'Frente de Neg\u00f3cio',      label:'Frente de Neg.',  fk:'frente'},
-  {key:'Ciclo Or\u00e7ament\u00e1rio',label:'Ciclo Orç.',      fk:'ciclo'},
+  {key:'ID',                          label:'ID',              fk:'id',      type:'text'},
+  {key:'Nome',                        label:'Nome',            fk:'nome',    type:'text'},
+  {key:'Produto Principal',           label:'Produto',         fk:'produto', type:'select'},
+  {key:'Status',                      label:'Status',          fk:'status',  type:'select'},
+  {key:'Probabilidade de Fechamento', label:'Prob. Fechamento',fk:'prob',    type:'select'},
+  {key:'Frente de Neg\u00f3cio',      label:'Frente de Neg.',  fk:'frente',  type:'select'},
+  {key:'Ciclo Or\u00e7ament\u00e1rio',label:'Ciclo Orç.',      fk:'ciclo',   type:'select'},
 ];
 async function acquireTokenForResource(clientId, tenantId, scope) {
   const app = getMsalApp(clientId, tenantId);
@@ -321,9 +321,13 @@ async function fetchMoskitCSV(clientId, tenantId) {
   const token = await acquireTokenForResource(clientId, tenantId, MOSKIT_SP_SCOPE);
   const safeRel = MOSKIT_FILE_REL.replace(/'/g,"''");
   const url = `${MOSKIT_SITE_URL}/_api/web/GetFileByServerRelativeUrl('${safeRel}')/$value`;
-  const res = await fetch(url, {headers:{'Authorization':`Bearer ${token}`,'Accept':'text/plain'}});
+  const res = await fetch(url, {headers:{'Authorization':`Bearer ${token}`}});
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+  const buffer = await res.arrayBuffer();
+  // Try UTF-8 first; if garbled characters detected, fall back to Windows-1252
+  const utf8 = new TextDecoder('utf-8').decode(buffer);
+  if (utf8.includes('\uFFFD')) return new TextDecoder('windows-1252').decode(buffer);
+  return utf8;
 }
 
 // ─── SharePoint REST ──────────────────────────────────────────────────────────
@@ -1203,8 +1207,21 @@ function MoskitPickerModal({clientId, tenantId, onSelect, onClose}) {
       .finally(()=>setLoading(false));
   },[]);
 
+  // Unique sorted values for select columns
+  const selectOpts = useMemo(()=>{
+    const opts={};
+    MOSKIT_COLS.filter(c=>c.type==='select').forEach(c=>{
+      opts[c.fk] = [...new Set(rows.map(r=>(r[c.key]||'').trim()).filter(Boolean))].sort();
+    });
+    return opts;
+  },[rows]);
+
   const filtered = rows.filter(r=>
-    MOSKIT_COLS.every(c=>!filters[c.fk]||(r[c.key]||'').toLowerCase().includes(filters[c.fk].toLowerCase()))
+    MOSKIT_COLS.every(c=>{
+      if (!filters[c.fk]) return true;
+      const val = (r[c.key]||'').trim();
+      return c.type==='select' ? val===filters[c.fk] : val.toLowerCase().includes(filters[c.fk].toLowerCase());
+    })
   );
 
   return (
@@ -1228,9 +1245,18 @@ function MoskitPickerModal({clientId, tenantId, onSelect, onClose}) {
                   {MOSKIT_COLS.map(c=>(
                     <th key={c.fk} className="px-2 py-2 text-left font-semibold text-slate-500 border-b border-slate-200 whitespace-nowrap">
                       <div className="mb-1">{c.label}</div>
-                      <input value={filters[c.fk]} onChange={e=>setFilters(f=>({...f,[c.fk]:e.target.value}))}
-                        placeholder="Filtrar..." onClick={e=>e.stopPropagation()}
-                        className="w-full border border-slate-200 rounded px-2 py-1 font-normal focus:ring-1 focus:ring-indigo-300"/>
+                      {c.type==='select' ? (
+                        <select value={filters[c.fk]} onChange={e=>setFilters(f=>({...f,[c.fk]:e.target.value}))}
+                          onClick={e=>e.stopPropagation()}
+                          className="w-full border border-slate-200 rounded px-1 py-1 font-normal focus:ring-1 focus:ring-indigo-300 bg-white">
+                          <option value="">Todos</option>
+                          {(selectOpts[c.fk]||[]).map(v=><option key={v} value={v}>{v}</option>)}
+                        </select>
+                      ) : (
+                        <input value={filters[c.fk]} onChange={e=>setFilters(f=>({...f,[c.fk]:e.target.value}))}
+                          placeholder="Buscar..." onClick={e=>e.stopPropagation()}
+                          className="w-full border border-slate-200 rounded px-2 py-1 font-normal focus:ring-1 focus:ring-indigo-300"/>
+                      )}
                     </th>
                   ))}
                 </tr>
