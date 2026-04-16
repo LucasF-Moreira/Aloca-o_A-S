@@ -489,13 +489,30 @@ function _spListBase(siteUrl, listName) {
 }
 async function fetchSPList(token, siteUrl, listName) {
   const base = _spListBase(siteUrl,listName);
-  let items=[], url=`${base}/items?$select=${encodeURIComponent(SP_SELECT)}&$top=200`;
-  while (url) {
-    const json = await spFetch(token, url);
-    items = items.concat(json.value||[]);
-    url = json['@odata.nextLink']||null;
+
+  // Split $select into two requests to avoid URL length limits (~4000+ chars with all PULSE_FIELDS)
+  const SEL_BASE = [
+    'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
+    'KA',...HEAD_KEYS,...ANALYST_KEYS,
+    ...PHASES.flatMap(ph=>[`Inicio_${ph.key}`,`Fim_${ph.key}`,`Analista_${ph.key}_PCT`]),
+  ].join(',');
+  const SEL_PULSE = ['Id',...PULSE_FIELDS.map(f=>f.k)].join(',');
+
+  async function fetchPages(sel) {
+    let items=[], url=`${base}/items?$select=${encodeURIComponent(sel)}&$top=200`;
+    while (url) {
+      const json = await spFetch(token, url);
+      items = items.concat(json.value||[]);
+      url = json['@odata.nextLink']||null;
+    }
+    return items;
   }
-  return items;
+
+  // Fetch both in parallel, then merge by Id
+  const [baseItems, pulseItems] = await Promise.all([fetchPages(SEL_BASE), fetchPages(SEL_PULSE)]);
+  const pulseMap = {};
+  pulseItems.forEach(i=>{ pulseMap[i.Id]=i; });
+  return baseItems.map(item=>({...item,...(pulseMap[item.Id]||{})}));
 }
 async function fetchTeamMembers(token, siteUrl) {
   try {
