@@ -70,7 +70,7 @@ const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
 const LS_KEY         = 'ct_aloc_v4';
 const SP_SELECT      = [
-  'Id','indice','Cliente','Status_Programa','Nome_Programa',
+  'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario',
   ...ANALYST_KEYS,
   ...PHASES.flatMap(ph=>[`Inicio_${ph.key}`,`Fim_${ph.key}`,`Analista_${ph.key}_PCT`]),
 ].join(',');
@@ -178,6 +178,7 @@ function parseSPItem(item) {
     title:  item.Nome_Programa||item.Title||'Sem título',
     client: item.Cliente||'',
     status: item.Status_Programa||'',
+    ciclo:  item.Ciclo_Orcamentario||'',
     source: 'sharepoint',
     analysts,
     phases,
@@ -433,15 +434,18 @@ function App() {
     return {start:s, end:`${e.getFullYear()}-${String(e.getMonth()+1).padStart(2,'0')}`};
   });
   const [distData,         setDistData]         = useState({distributions:{},localProjects:[]});
+  const [cicloFilter,      setCicloFilter]      = useState('');
   const [showEdit,         setShowEdit]         = useState(null);   // project obj or 'new'
   const [showAnalystDetail,setShowAnalystDetail] = useState(null);
 
   // Only persist config locally when it wasn't baked into APP_CONFIG
   useEffect(()=>{ if (!APP_CONFIG.clientId) saveLocal({clientId,tenantId}); },[clientId,tenantId]);
 
-  const allocations = useMemo(()=>computeAllocations(projects),[projects]);
-  const analysts    = useMemo(()=>Object.keys(allocations).sort(),[allocations]);
-  const months      = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
+  const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
+  const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
+  const allocations     = useMemo(()=>computeAllocations(filteredProjects),[filteredProjects]);
+  const analysts        = useMemo(()=>Object.keys(allocations).sort(),[allocations]);
+  const months          = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
 
   // ── Load all data: SP items + dist file → merged projects ──
   const loadAll = useCallback(async(token)=>{
@@ -645,6 +649,17 @@ function App() {
       )}
 
       <main className="max-w-screen-2xl mx-auto px-4 pb-10">
+        {ciclos.length>0&&(
+          <div className="flex items-center gap-2 mt-3 mb-1">
+            <span className="text-xs font-medium text-slate-500 shrink-0">Ciclo orçamentário:</span>
+            <select value={cicloFilter} onChange={e=>setCicloFilter(e.target.value)}
+              className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400">
+              <option value="">Todos</option>
+              {ciclos.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+            {cicloFilter&&<span className="text-xs text-indigo-600 font-medium">{filteredProjects.length} projeto(s)</span>}
+          </div>
+        )}
         {error&&(
           <div className="mt-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm flex items-start gap-2">
             <span className="flex-1">{error}</span>
@@ -660,11 +675,11 @@ function App() {
             monthRange={monthRange} setMonthRange={setMonthRange} onAnalystClick={setShowAnalystDetail}/>
         )}
         {view==='projects'&&(
-          <ProjectsView projects={projects} onEdit={p=>setShowEdit(p)} onNew={()=>setShowEdit('new')}
+          <ProjectsView projects={filteredProjects} onEdit={p=>setShowEdit(p)} onNew={()=>setShowEdit('new')}
             getSuggestions={getSuggestions} onAddAnalyst={addAnalystToProject}/>
         )}
         {view==='suggestions'&&(
-          <SuggestionsView projects={projects} getSuggestions={getSuggestions}
+          <SuggestionsView projects={filteredProjects} getSuggestions={getSuggestions}
             onEdit={p=>setShowEdit(p)} onAddAnalyst={addAnalystToProject}/>
         )}
       </main>
