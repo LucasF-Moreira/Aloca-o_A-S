@@ -65,7 +65,7 @@ const MAX_ANALYSTS   = 8;
 const ANALYST_KEYS   = Array.from({length:MAX_ANALYSTS},(_,i)=>`Analista_${i+1}`);
 const SP_SITE_URL    = 'https://ciadetalentos-my.sharepoint.com/personal/automacoes_fpa_ciadetalentos_com';
 const SP_LIST_NAME   = 'List_Pulse';
-const SP_SCOPE       = 'https://ciadetalentos-my.sharepoint.com/.default';
+const SP_SCOPE       = 'https://ciadetalentos-my.sharepoint.com/AllSites.ReadWrite';
 const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
 const LS_KEY         = 'ct_aloc_v4';
@@ -284,6 +284,7 @@ async function signOutMsal(clientId, tenantId) {
     const account = app.getAllAccounts()[0];
     if (account) await app.logoutPopup({account});
   } catch {}
+  sessionStorage.clear(); // limpa cache de token para forçar novo login com permissões atualizadas
   _msalApp = null;
 }
 
