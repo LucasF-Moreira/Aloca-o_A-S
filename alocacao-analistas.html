@@ -752,7 +752,7 @@ function App() {
           tenantId={tenantId}/>
       )}
       {showAnalystDetail&&(
-        <AnalystDetailModal analyst={showAnalystDetail} allProjects={projects}
+        <AnalystDetailModal analyst={showAnalystDetail} allProjects={filteredProjects}
           onClose={()=>setShowAnalystDetail(null)}/>
       )}
     </div>
