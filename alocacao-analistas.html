@@ -7,7 +7,7 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -39,8 +39,8 @@ const { useState, useEffect, useMemo, useCallback, useRef } = React;
 //  Passo 3: Permissões de API → SharePoint → AllSites.ReadWrite → Consentimento de admin
 // ═══════════════════════════════════════════════════════════════════════════════
 const APP_CONFIG = {
-  clientId: '',          // ← Cole aqui o Application (client) ID do Azure AD
-  tenantId: 'common',   // ← Cole aqui o Directory (tenant) ID (ou deixe 'common')
+  clientId: 'c6dbe555-ff7c-42c7-a354-f08a2e047635',
+  tenantId: 'ac8f4ef1-af60-46a9-ab7f-189ccdb79e4c',
 };
 // ═══════════════════════════════════════════════════════════════════════════════
 
