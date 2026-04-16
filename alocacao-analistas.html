@@ -7,7 +7,13 @@
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<script src="https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
+<script>
+  // Shim: normalize whatever global the CDN version exposes → always window.msal
+  if (typeof msal === 'undefined') {
+    window.msal = window.msalBrowser || window['@azure/msal-browser'] || null;
+  }
+</script>
 <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
@@ -244,6 +250,7 @@ function saveLocal(d) { try{localStorage.setItem(LS_KEY,JSON.stringify(d))} catc
 let _msalApp = null;
 function getMsalApp(clientId, tenantId) {
   if (_msalApp) return _msalApp;
+  if (!window.msal) throw new Error('Biblioteca MSAL não carregou. Verifique sua conexão com a internet e recarregue a página. O arquivo deve ser acessado via http:// (não file://).');
   _msalApp = new msal.PublicClientApplication({
     auth: {
       clientId,
