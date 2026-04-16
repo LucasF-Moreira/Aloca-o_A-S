@@ -432,11 +432,11 @@ function App() {
       // Diagnostic: try to list all visible lists to find correct name
       let diagMsg = 'Erro ao carregar dados: '+e.message;
       try {
-        const diagUrl = `${SP_SITE_URL}/_api/web/lists?$select=Title,RootFolder/ServerRelativeUrl&$expand=RootFolder&$filter=Hidden eq false&$top=50`;
+        const diagUrl = `${SP_SITE_URL}/_api/web/lists?$select=Title,Hidden,RootFolder/ServerRelativeUrl&$expand=RootFolder&$top=100`;
         const diagRes = await fetch(diagUrl, {headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'}});
         if (diagRes.ok) {
           const diagJson = await diagRes.json();
-          const names = (diagJson.value||[]).map(l=>`"${l.Title}" (${l.RootFolder?.ServerRelativeUrl||''})`).join(' | ');
+          const names = (diagJson.value||[]).map(l=>`"${l.Title}"${l.Hidden?'[oculta]':''} (${l.RootFolder?.ServerRelativeUrl||''})`).join(' | ');
           diagMsg += `\n\n📋 Listas encontradas no site:\n${names||'(nenhuma)'}`;
         } else {
           diagMsg += `\n\n⚠️ Sem acesso ao site (${diagRes.status}). Verifique permissões do app no Azure AD (AllSites.Read).`;
