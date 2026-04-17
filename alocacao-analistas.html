@@ -210,6 +210,23 @@ function calSameDay(a,b) { return a.getFullYear()===b.getFullYear()&&a.getMonth(
 function calGetWeekDays(date) { const d=calSoD(date); return Array.from({length:7},(_,i)=>calAddDays(d,i-d.getDay())); }
 function calGetMonthGrid(yr,mo) { const f=new Date(yr,mo,1); const s=calAddDays(f,-f.getDay()); return Array.from({length:42},(_,i)=>calAddDays(s,i)); }
 function calFmt(d) { return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; }
+const CAL_STATUS = {
+  planned:  { color:'#3b82f6', bg:'#eff6ff', label:'Planejamento', emoji:'🔵' },
+  active:   { color:'#22c55e', bg:'#f0fdf4', label:'Em andamento',  emoji:'🟢' },
+  warning:  { color:'#eab308', bg:'#fefce8', label:'Atenção',       emoji:'🟡' },
+  critical: { color:'#ef4444', bg:'#fef2f2', label:'Crítico',       emoji:'🔴' },
+  done:     { color:'#94a3b8', bg:'#f8fafc', label:'Finalizado',    emoji:'⚫' },
+};
+const CAL_STATUS_ORDER = ['critical','warning','active','planned','done'];
+function calPhaseStatus(start, end, today) {
+  const s=calSoD(start), e=calSoD(end), t=calSoD(today||new Date());
+  if (e<t) return 'done';
+  if (s>t) return 'planned';
+  const daysLeft=Math.round((e-t)/864e5);
+  if (daysLeft<=3) return 'critical';
+  if (daysLeft<=7) return 'warning';
+  return 'active';
+}
 
 const SP_SELECT      = [
   'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
@@ -2579,16 +2596,179 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving}) {
 
 // ─── Calendar Components ──────────────────────────────────────────────────────
 
+// ── Overview Panel (status cards + phase distribution + active phases tree) ──
+function CalOverview({ events, today }) {
+  const [expanded, setExpanded] = useState(true);
+
+  const classified = useMemo(() =>
+    events.map(e => ({ ...e, status: calPhaseStatus(e.start, e.end, today) }))
+  , [events, today]);
+
+  // Status counts
+  const statusCounts = useMemo(() => {
+    const c = { planned:0, active:0, warning:0, critical:0, done:0 };
+    classified.forEach(e => { if (c[e.status]!==undefined) c[e.status]++; });
+    return c;
+  }, [classified]);
+
+  // Phase distribution (unique project-phase pairs, count per phase)
+  const phaseCounts = useMemo(() => {
+    const c = {};
+    classified.forEach(e => { c[e.phaseKey]=(c[e.phaseKey]||0)+1; });
+    return c;
+  }, [classified]);
+
+  // Active phases (non-done) grouped by client, sorted by status priority
+  const activeByClient = useMemo(() => {
+    const active = classified.filter(e => e.status !== 'done');
+    const map = {};
+    active.forEach(e => {
+      const c = e.client||'(sem cliente)';
+      if (!map[c]) map[c] = [];
+      map[c].push(e);
+    });
+    // Sort each client's events by status priority then start date
+    Object.values(map).forEach(arr => arr.sort((a,b) => {
+      const si = CAL_STATUS_ORDER.indexOf(a.status);
+      const sj = CAL_STATUS_ORDER.indexOf(b.status);
+      return si!==sj ? si-sj : a.start-b.start;
+    }));
+    return Object.entries(map).sort(([a],[b]) => a.localeCompare(b));
+  }, [classified]);
+
+  return (
+    <div className="mb-8">
+
+      {/* ── Status summary cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
+        {CAL_STATUS_ORDER.map(s => {
+          const st = CAL_STATUS[s];
+          const count = statusCounts[s] || 0;
+          return (
+            <div key={s} className="bg-white rounded-2xl border border-slate-200 p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
+              <span className="text-3xl leading-none">{st.emoji}</span>
+              <div>
+                <div className="text-2xl font-bold text-slate-900 leading-tight">{count}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{st.label}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Phase distribution ── */}
+      {Object.keys(phaseCounts).length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
+            Projetos por fase — período filtrado
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {PHASES.filter(ph => phaseCounts[ph.key]).map(ph => (
+              <div key={ph.key}
+                className="flex items-center gap-2.5 px-4 py-2 rounded-xl border text-sm font-semibold"
+                style={{borderColor:CAL_COLORS[ph.key], color:CAL_COLORS[ph.key], background:CAL_COLORS[ph.key]+'18'}}>
+                <span>{ph.label}</span>
+                <span className="text-base font-bold leading-none">{phaseCounts[ph.key]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Fases em andamento (client tree) ── */}
+      {activeByClient.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          <button
+            onClick={() => setExpanded(x => !x)}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors">
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Fases em andamento</span>
+              <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">
+                {activeByClient.reduce((s,[,evts])=>s+evts.length,0)} fases
+              </span>
+            </div>
+            <span className="text-slate-400 text-sm">{expanded ? '▲' : '▼'}</span>
+          </button>
+
+          {expanded && (
+            <div className="border-t border-slate-100 divide-y divide-slate-50">
+              {activeByClient.map(([client, evts]) => (
+                <div key={client} className="px-6 py-5">
+                  {/* Client row */}
+                  <div className="flex items-center gap-2.5 mb-4">
+                    <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center text-sm shrink-0">🏢</div>
+                    <span className="text-sm font-bold text-slate-800">{client}</span>
+                    <span className="text-xs text-slate-400">({evts.length} fase{evts.length!==1?'s':''})</span>
+                  </div>
+                  {/* Project rows */}
+                  <div className="space-y-3 ml-2">
+                    {evts.map((e, ei) => {
+                      const st = CAL_STATUS[e.status];
+                      const isLast = ei === evts.length - 1;
+                      const daysLeft = e.status !== 'planned'
+                        ? Math.round((e.end - today) / 864e5)
+                        : Math.round((e.start - today) / 864e5);
+                      return (
+                        <div key={e.id} className="flex items-start gap-3">
+                          {/* Tree line */}
+                          <span className="text-slate-200 text-sm mt-0.5 shrink-0 font-mono select-none">
+                            {isLast ? '└' : '├'}
+                          </span>
+                          {/* Status dot */}
+                          <div className="w-2 h-2 rounded-full mt-2 shrink-0" style={{background:st.color}}/>
+                          {/* Content */}
+                          <div className="flex-1 min-w-0 pb-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-800">{e.projTitle}</span>
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                style={{background:CAL_COLORS[e.phaseKey]+'22',color:CAL_COLORS[e.phaseKey]}}>
+                                {e.phaseLabel}
+                              </span>
+                              <span className="text-xs font-medium" style={{color:st.color}}>
+                                {e.status==='planned'
+                                  ? `começa em ${daysLeft}d`
+                                  : e.status==='done'
+                                  ? 'finalizado'
+                                  : daysLeft<=0
+                                  ? `atrasado ${Math.abs(daysLeft)}d`
+                                  : `${daysLeft}d restante${daysLeft!==1?'s':''}`}
+                              </span>
+                            </div>
+                            <div className="text-xs text-slate-400 mt-1.5">
+                              {calFmt(e.start)} <span className="text-slate-200 mx-1">→</span> {calFmt(e.end)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeByClient.length === 0 && events.length === 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400 text-sm">
+          Nenhuma fase encontrada. Ajuste os filtros para ver o cronograma.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── CalendarView (main) ──
 function CalendarView({ projects, ciclos }) {
   const today = calSoD(new Date());
-  const [viewMode, setViewMode]         = useState('month');
-  const [navDate, setNavDate]           = useState(calSoD(today));
-  const [filterCiclo, setFilterCiclo]   = useState('');
-  const [filterProjeto, setFilterProjeto] = useState('');
-  const [filterCliente, setFilterCliente] = useState('');
+  const [viewMode, setViewMode]             = useState('month');
+  const [navDate, setNavDate]               = useState(calSoD(today));
+  const [filterCiclo, setFilterCiclo]       = useState('');
+  const [filterProjeto, setFilterProjeto]   = useState('');
+  const [filterCliente, setFilterCliente]   = useState('');
   const [filterDateStart, setFilterDateStart] = useState('');
   const [filterDateEnd, setFilterDateEnd]   = useState('');
-  const [selectedDay, setSelectedDay]   = useState(null);
+  const [selectedDay, setSelectedDay]       = useState(null);
 
   // Build events list from all project phases
   const allEvents = useMemo(() => {
@@ -2620,7 +2800,7 @@ function CalendarView({ projects, ciclos }) {
   // Apply filters
   const events = useMemo(() => {
     return allEvents.filter(e => {
-      if (filterCiclo   && e.ciclo     !== filterCiclo)                               return false;
+      if (filterCiclo   && e.ciclo !== filterCiclo)                                          return false;
       if (filterProjeto && !e.projTitle.toLowerCase().includes(filterProjeto.toLowerCase())) return false;
       if (filterCliente && !e.client.toLowerCase().includes(filterCliente.toLowerCase()))    return false;
       if (filterDateStart) { const fs=parseSPDate(filterDateStart); if (fs&&e.end<fs)   return false; }
@@ -2661,60 +2841,70 @@ function CalendarView({ projects, ciclos }) {
   const hasFilters = filterCiclo||filterProjeto||filterCliente||filterDateStart||filterDateEnd;
 
   return (
-    <div className="max-w-screen-xl mx-auto px-4 pb-10">
+    <div className="max-w-screen-xl mx-auto px-4 pb-12">
 
       {/* ── Filter bar ── */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 mt-2 flex flex-wrap gap-3 items-end">
+      <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4 mb-6 mt-3 flex flex-wrap gap-4 items-end">
         <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">Ciclo</label>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Ciclo</label>
           <select value={filterCiclo} onChange={e=>setFilterCiclo(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 min-w-[110px] focus:ring-2 focus:ring-emerald-300">
+            className="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 min-w-[130px] focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400">
             <option value="">Todos</option>
             {(ciclos||[]).map(c=><option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">Projeto</label>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Projeto</label>
           <input value={filterProjeto} onChange={e=>setFilterProjeto(e.target.value)}
-            placeholder="buscar…" className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 w-36 focus:ring-2 focus:ring-emerald-300"/>
+            placeholder="buscar…" className="text-sm border border-slate-200 rounded-xl px-3 py-2 w-40 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400"/>
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">Cliente</label>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Cliente</label>
           <input value={filterCliente} onChange={e=>setFilterCliente(e.target.value)}
-            placeholder="buscar…" className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 w-36 focus:ring-2 focus:ring-emerald-300"/>
+            placeholder="buscar…" className="text-sm border border-slate-200 rounded-xl px-3 py-2 w-40 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400"/>
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">De</label>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">De</label>
           <input type="date" value={filterDateStart} onChange={e=>setFilterDateStart(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-300"/>
+            className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400"/>
         </div>
         <div>
-          <label className="text-xs font-medium text-slate-500 block mb-1">Até</label>
+          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide block mb-1.5">Até</label>
           <input type="date" value={filterDateEnd} onChange={e=>setFilterDateEnd(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-emerald-300"/>
+            className="text-sm border border-slate-200 rounded-xl px-3 py-2 focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400"/>
         </div>
         {hasFilters&&(
           <button onClick={()=>{setFilterCiclo('');setFilterProjeto('');setFilterCliente('');setFilterDateStart('');setFilterDateEnd('');}}
-            className="text-xs text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 px-2.5 py-1.5 rounded-lg transition self-end">
+            className="text-xs text-slate-400 hover:text-red-500 border border-slate-200 hover:border-red-200 px-3 py-2 rounded-xl transition self-end">
             ✕ Limpar
           </button>
         )}
-        <div className="ml-auto self-end text-xs text-slate-400">{events.length} fase(s)</div>
+        <div className="ml-auto self-end text-xs text-slate-400 font-medium">{events.length} fase(s)</div>
+      </div>
+
+      {/* ── Overview (before calendar grid) ── */}
+      <CalOverview events={events} today={today}/>
+
+      {/* ── Divider + section label ── */}
+      <div className="flex items-center gap-3 mb-5">
+        <div className="h-px flex-1 bg-slate-200"/>
+        <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Calendário</span>
+        <div className="h-px flex-1 bg-slate-200"/>
       </div>
 
       {/* ── Nav bar ── */}
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-3 mb-4">
         <button onClick={()=>setNavDate(calSoD(today))}
-          className="text-sm border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition">Hoje</button>
+          className="text-sm border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-50 transition font-medium">Hoje</button>
         <button onClick={navPrev}
-          className="text-sm border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition font-bold">‹</button>
+          className="text-sm border border-slate-200 px-3.5 py-2 rounded-xl hover:bg-slate-50 transition text-lg leading-none">‹</button>
         <button onClick={navNext}
-          className="text-sm border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition font-bold">›</button>
-        <span className="text-base font-semibold text-slate-800 flex-1 ml-1">{navTitle}</span>
-        <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
+          className="text-sm border border-slate-200 px-3.5 py-2 rounded-xl hover:bg-slate-50 transition text-lg leading-none">›</button>
+        <span className="text-base font-bold text-slate-800 flex-1 ml-1">{navTitle}</span>
+        <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
           {['month','week','day'].map(v=>(
             <button key={v} onClick={()=>setViewMode(v)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${viewMode===v?'bg-white shadow text-emerald-600':'text-slate-500 hover:text-slate-700'}`}>
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${viewMode===v?'bg-white shadow text-emerald-600':'text-slate-500 hover:text-slate-700'}`}>
               {v==='month'?'Mês':v==='week'?'Semana':'Dia'}
             </button>
           ))}
@@ -2727,9 +2917,9 @@ function CalendarView({ projects, ciclos }) {
       {viewMode==='day'&&<CalDayView   events={events} navDate={navDate} today={today} onDayClick={d=>setNavDate(d)}/>}
 
       {/* ── Legend ── */}
-      <div className="mt-4 flex flex-wrap gap-3 justify-center">
+      <div className="mt-6 flex flex-wrap gap-4 justify-center">
         {PHASES.map(ph=>(
-          <div key={ph.key} className="flex items-center gap-1.5 text-xs text-slate-600">
+          <div key={ph.key} className="flex items-center gap-2 text-xs text-slate-600">
             <div className="w-3 h-3 rounded-full shrink-0" style={{background:CAL_COLORS[ph.key]||'#64748b'}}/>
             {ph.label}
           </div>
@@ -2741,23 +2931,23 @@ function CalendarView({ projects, ciclos }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={()=>setSelectedDay(null)}>
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm"/>
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={e=>e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <div>
-                <h3 className="font-bold text-slate-800">{calFmt(selectedDay)}</h3>
-                <p className="text-xs text-slate-400">{CAL_DAY_NAMES[selectedDay.getDay()]}</p>
+                <h3 className="font-bold text-slate-800 text-base">{calFmt(selectedDay)}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{CAL_DAY_NAMES[selectedDay.getDay()]}</p>
               </div>
-              <button onClick={()=>setSelectedDay(null)} className="text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
+              <button onClick={()=>setSelectedDay(null)} className="text-slate-400 hover:text-slate-700 text-xl leading-none">✕</button>
             </div>
-            <div className="overflow-y-auto p-4 space-y-3">
+            <div className="overflow-y-auto px-5 py-4 space-y-3">
               {dayModalEvents.length===0&&(
-                <p className="text-sm text-slate-400 text-center py-6">Nenhuma fase ativa neste dia.</p>
+                <p className="text-sm text-slate-400 text-center py-8">Nenhuma fase ativa neste dia.</p>
               )}
               {dayModalEvents.map(e=>(
-                <div key={e.id} className="rounded-xl p-3 bg-slate-50 border-l-4" style={{borderLeftColor:e.color}}>
-                  <div className="text-xs font-semibold mb-0.5" style={{color:e.color}}>{e.phaseLabel}</div>
-                  <div className="text-sm font-medium text-slate-800">{e.projTitle}</div>
-                  <div className="text-xs text-slate-500">{e.client}{e.ciclo?` · ${e.ciclo}`:''}</div>
-                  <div className="text-xs text-slate-400 mt-1">{calFmt(e.start)} → {calFmt(e.end)}</div>
+                <div key={e.id} className="rounded-xl p-4 bg-slate-50 border-l-4" style={{borderLeftColor:e.color}}>
+                  <div className="text-xs font-semibold mb-1" style={{color:e.color}}>{e.phaseLabel}</div>
+                  <div className="text-sm font-semibold text-slate-800">{e.projTitle}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{e.client}{e.ciclo?` · ${e.ciclo}`:''}</div>
+                  <div className="text-xs text-slate-400 mt-2">{calFmt(e.start)} → {calFmt(e.end)}</div>
                 </div>
               ))}
             </div>
@@ -2774,10 +2964,10 @@ function CalMonthView({ events, navDate, today, onDayClick }) {
   const grid=calGetMonthGrid(yr,mo);
   const weeks=Array.from({length:6},(_,i)=>grid.slice(i*7,i*7+7));
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-slate-100">
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
         {CAL_DAY_NAMES.map(d=>(
-          <div key={d} className="py-2 text-center text-xs font-semibold text-slate-500 uppercase tracking-wide">{d}</div>
+          <div key={d} className="py-3 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">{d}</div>
         ))}
       </div>
       {weeks.map((week,wi)=>(
@@ -2790,12 +2980,10 @@ function CalMonthView({ events, navDate, today, onDayClick }) {
 function CalMonthWeekRow({ week, events, month, today, onDayClick }) {
   const weekStart=week[0], weekEnd=week[6];
 
-  // Collect events overlapping this week
   const weekEvents=events
     .filter(e=>e.start<=weekEnd&&e.end>=weekStart)
     .sort((a,b)=>a.start-b.start||(b.end-b.start)-(a.end-a.start));
 
-  // Assign swim lanes (tracks)
   const tracks=[];
   const eventTracks=new Map();
   weekEvents.forEach(evt=>{
@@ -2808,7 +2996,7 @@ function CalMonthWeekRow({ week, events, month, today, onDayClick }) {
   });
 
   const numTracks=tracks.length;
-  const rowH=Math.max(72, 30+numTracks*22);
+  const rowH=Math.max(90, 38+numTracks*26);
 
   return (
     <div className="relative border-b border-slate-100 last:border-b-0" style={{height:rowH}}>
@@ -2819,8 +3007,8 @@ function CalMonthWeekRow({ week, events, month, today, onDayClick }) {
           const isCurMo=day.getMonth()===month;
           return (
             <div key={di} onClick={()=>onDayClick(calSoD(day))}
-              className={`border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-emerald-50/60 transition-colors ${!isCurMo?'bg-slate-50/70':''}`}>
-              <div className={`text-xs w-6 h-6 flex items-center justify-center rounded-full font-medium mx-auto mt-1.5
+              className={`border-r border-slate-100 last:border-r-0 cursor-pointer hover:bg-emerald-50/70 transition-colors ${!isCurMo?'bg-slate-50/60':''}`}>
+              <div className={`text-xs w-7 h-7 flex items-center justify-center rounded-full font-semibold mx-auto mt-2
                 ${isToday?'bg-emerald-500 text-white':isCurMo?'text-slate-700':'text-slate-300'}`}>
                 {day.getDate()}
               </div>
@@ -2837,7 +3025,6 @@ function CalMonthWeekRow({ week, events, month, today, onDayClick }) {
         const ed=Math.round((ce-weekStart)/864e5);
         const leftPct=(sd/7)*100;
         const widthPct=((ed-sd+1)/7)*100;
-        const showLabel=!calSameDay(cs,weekStart)||evt.start>=weekStart;
         const continuesLeft=evt.start<weekStart;
         const continuesRight=evt.end>weekEnd;
         return (
@@ -2848,20 +3035,19 @@ function CalMonthWeekRow({ week, events, month, today, onDayClick }) {
               position:'absolute',
               left:`calc(${leftPct}% + ${continuesLeft?0:3}px)`,
               width:`calc(${widthPct}% - ${(continuesLeft?0:3)+(continuesRight?0:3)}px)`,
-              top:`${28+track*22}px`,
-              height:'18px',
+              top:`${36+track*26}px`,
+              height:'20px',
               background:evt.color,
-              borderRadius:`${continuesLeft?0:4}px ${continuesRight?0:4}px ${continuesRight?0:4}px ${continuesLeft?0:4}px`,
+              borderRadius:`${continuesLeft?0:5}px ${continuesRight?0:5}px ${continuesRight?0:5}px ${continuesLeft?0:5}px`,
               display:'flex',alignItems:'center',
-              paddingLeft:continuesLeft?4:6,
-              overflow:'hidden',opacity:0.9,cursor:'pointer',zIndex:2,
-              borderLeft:continuesLeft?`2px dashed rgba(255,255,255,0.5)`:'none',
+              paddingLeft:continuesLeft?5:7,
+              overflow:'hidden',opacity:0.88,cursor:'pointer',zIndex:2,
+              boxShadow:'0 1px 3px rgba(0,0,0,0.15)',
+              borderLeft:continuesLeft?`2px dashed rgba(255,255,255,0.6)`:'none',
             }}>
-            {(showLabel||continuesLeft)&&(
-              <span style={{fontSize:'10px',color:'white',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1}}>
-                {continuesLeft&&'↩ '}{evt.projTitle} – {evt.phaseLabel}
-              </span>
-            )}
+            <span style={{fontSize:'10px',color:'white',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',lineHeight:1,letterSpacing:'0.01em'}}>
+              {continuesLeft&&'↩ '}{evt.projTitle} – {evt.phaseLabel}
+            </span>
           </div>
         );
       })}
@@ -2890,19 +3076,19 @@ function CalWeekView({ events, navDate, today, onDayClick }) {
   });
 
   const numTracks=Math.max(tracks.length,1);
-  const bodyH=Math.max(100, numTracks*30+20);
+  const bodyH=Math.max(120, numTracks*36+24);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
       {/* Day headers */}
-      <div className="grid grid-cols-7 border-b border-slate-100">
+      <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
         {weekDays.map((day,i)=>{
           const isToday=calSameDay(day,today);
           return (
             <div key={i} onClick={()=>onDayClick(calSoD(day))}
-              className={`py-2 text-center cursor-pointer hover:bg-emerald-50 border-r border-slate-100 last:border-r-0 transition-colors ${isToday?'bg-emerald-50':''}`}>
-              <div className="text-xs text-slate-500 uppercase font-medium">{CAL_DAY_NAMES[day.getDay()]}</div>
-              <div className={`text-sm font-bold mx-auto mt-0.5 w-7 h-7 flex items-center justify-center rounded-full ${isToday?'bg-emerald-500 text-white':'text-slate-800'}`}>
+              className={`py-3 text-center cursor-pointer hover:bg-emerald-50 border-r border-slate-100 last:border-r-0 transition-colors ${isToday?'bg-emerald-50/80':''}`}>
+              <div className="text-xs text-slate-500 uppercase font-semibold tracking-wide">{CAL_DAY_NAMES[day.getDay()]}</div>
+              <div className={`text-sm font-bold mx-auto mt-1 w-8 h-8 flex items-center justify-center rounded-full ${isToday?'bg-emerald-500 text-white':'text-slate-800'}`}>
                 {day.getDate()}
               </div>
             </div>
@@ -2912,7 +3098,7 @@ function CalWeekView({ events, navDate, today, onDayClick }) {
       {/* Events area */}
       <div className="relative" style={{height:bodyH}}>
         {weekEvents.length===0&&(
-          <p className="text-center text-sm text-slate-400 py-8">Nenhuma fase nesta semana.</p>
+          <p className="text-center text-sm text-slate-400 py-10">Nenhuma fase nesta semana.</p>
         )}
         {weekEvents.map(evt=>{
           const track=eventTracks.get(evt.id);
@@ -2929,17 +3115,18 @@ function CalWeekView({ events, navDate, today, onDayClick }) {
               title={`${evt.projTitle} · ${evt.phaseLabel}\n${calFmt(evt.start)} → ${calFmt(evt.end)}`}
               style={{
                 position:'absolute',
-                left:`calc(${leftPct}% + ${contL?0:4}px)`,
-                width:`calc(${widthPct}% - ${(contL?0:4)+(contR?0:4)}px)`,
-                top:`${8+track*30}px`,
-                height:'22px',
+                left:`calc(${leftPct}% + ${contL?0:5}px)`,
+                width:`calc(${widthPct}% - ${(contL?0:5)+(contR?0:5)}px)`,
+                top:`${10+track*36}px`,
+                height:'26px',
                 background:evt.color,
-                borderRadius:`${contL?0:6}px ${contR?0:6}px ${contR?0:6}px ${contL?0:6}px`,
-                display:'flex',alignItems:'center',paddingLeft:contL?4:8,
+                borderRadius:`${contL?0:7}px ${contR?0:7}px ${contR?0:7}px ${contL?0:7}px`,
+                display:'flex',alignItems:'center',paddingLeft:contL?5:10,
                 overflow:'hidden',cursor:'pointer',zIndex:1,
-                borderLeft:contL?`2px dashed rgba(255,255,255,0.5)`:'none',
+                boxShadow:'0 1px 3px rgba(0,0,0,0.12)',
+                borderLeft:contL?`2px dashed rgba(255,255,255,0.6)`:'none',
               }}>
-              <span style={{fontSize:'11px',color:'white',fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+              <span style={{fontSize:'11px',color:'white',fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',letterSpacing:'0.01em'}}>
                 {contL&&'↩ '}{evt.projTitle} – {evt.phaseLabel}
               </span>
             </div>
@@ -2954,41 +3141,61 @@ function CalWeekView({ events, navDate, today, onDayClick }) {
 function CalDayView({ events, navDate, today }) {
   const dayEvents=events.filter(e=>e.start<=navDate&&e.end>=navDate).sort((a,b)=>a.start-b.start);
   const isToday=calSameDay(navDate,today);
-  const byPhase={};
-  dayEvents.forEach(e=>{ if (!byPhase[e.phaseKey]) byPhase[e.phaseKey]=[]; byPhase[e.phaseKey].push(e); });
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className={`p-4 border-b border-slate-100 flex items-center justify-between ${isToday?'bg-emerald-50':''}`}>
-        <div>
-          <div className="text-lg font-bold text-slate-800">
-            {CAL_DAY_NAMES[navDate.getDay()]}, {String(navDate.getDate()).padStart(2,'0')} de {CAL_MONTH_NAMES[navDate.getMonth()]} de {navDate.getFullYear()}
-            {isToday&&<span className="ml-2 text-xs bg-emerald-500 text-white px-2 py-0.5 rounded-full">Hoje</span>}
-          </div>
-          <div className="text-xs text-slate-400 mt-0.5">{dayEvents.length} fase(s) ativa(s)</div>
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className={`px-6 py-5 border-b border-slate-100 ${isToday?'bg-emerald-50/60':''}`}>
+        <div className="text-xl font-bold text-slate-900">
+          {CAL_DAY_NAMES[navDate.getDay()]}, {String(navDate.getDate()).padStart(2,'0')} de {CAL_MONTH_NAMES[navDate.getMonth()]} de {navDate.getFullYear()}
+          {isToday&&<span className="ml-3 text-xs bg-emerald-500 text-white px-2.5 py-1 rounded-full font-semibold">Hoje</span>}
         </div>
+        <div className="text-xs text-slate-400 mt-1.5 font-medium">{dayEvents.length} fase(s) ativa(s)</div>
       </div>
-      <div className="p-4">
+      <div className="px-6 py-5">
         {dayEvents.length===0?(
-          <div className="text-center text-sm text-slate-400 py-10">Nenhuma fase ativa neste dia.</div>
+          <div className="text-center text-sm text-slate-400 py-12">Nenhuma fase ativa neste dia.</div>
         ):(
-          <div className="space-y-3">
-            {dayEvents.map(evt=>(
-              <div key={evt.id} className="flex items-start gap-3 p-3.5 rounded-xl bg-slate-50 border border-slate-100"
-                style={{borderLeftWidth:'4px',borderLeftColor:evt.color,borderLeftStyle:'solid'}}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{background:evt.color}}>{evt.phaseLabel}</span>
-                  </div>
-                  <div className="text-sm font-semibold text-slate-800">{evt.projTitle}</div>
-                  <div className="text-xs text-slate-500 mt-0.5">{evt.client}{evt.ciclo?` · ${evt.ciclo}`:''}</div>
-                  <div className="text-xs text-slate-400 mt-1.5 font-medium">
-                    {calFmt(evt.start)} <span className="text-slate-300">→</span> {calFmt(evt.end)}
-                    <span className="ml-2 text-slate-400">({Math.round((evt.end-evt.start)/864e5)+1} dias)</span>
+          <div className="space-y-4">
+            {dayEvents.map(evt=>{
+              const st = CAL_STATUS[calPhaseStatus(evt.start, evt.end, today)];
+              const daysLeft = Math.round((evt.end - today) / 864e5);
+              return (
+                <div key={evt.id} className="rounded-2xl bg-slate-50 border border-slate-100 overflow-hidden"
+                  style={{borderLeftWidth:'5px',borderLeftColor:evt.color,borderLeftStyle:'solid'}}>
+                  <div className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-full text-white" style={{background:evt.color}}>
+                            {evt.phaseLabel}
+                          </span>
+                          <span className="text-xs font-semibold" style={{color:st.color}}>
+                            {st.emoji} {st.label}
+                          </span>
+                        </div>
+                        <div className="text-base font-bold text-slate-900">{evt.projTitle}</div>
+                        <div className="text-sm text-slate-500 mt-1">{evt.client}{evt.ciclo?` · ${evt.ciclo}`:''}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-xs text-slate-400 font-medium">
+                          {calFmt(evt.start)}
+                        </div>
+                        <div className="text-xs text-slate-300 my-0.5">↓</div>
+                        <div className="text-xs text-slate-400 font-medium">
+                          {calFmt(evt.end)}
+                        </div>
+                        <div className="text-xs font-semibold mt-1.5" style={{color:st.color}}>
+                          {daysLeft < 0 ? `${Math.abs(daysLeft)}d atrasado` : daysLeft===0 ? 'Último dia' : `${daysLeft}d restantes`}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-400 mt-2 font-medium">
+                      Duração total: {Math.round((evt.end-evt.start)/864e5)+1} dias
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
