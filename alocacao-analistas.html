@@ -1356,6 +1356,7 @@ function App() {
         <ProjectModal
           project={showEdit==='new'?null:showEdit}
           allAnalysts={analysts}
+          allHeads={heads}
           onSave={saveProject}
           onClose={()=>setShowEdit(null)}
           saving={saving}
@@ -2182,10 +2183,9 @@ function MoskitPickerModal({clientId, tenantId, onSelect, onClose}) {
 }
 
 // ─── Project Modal (redesigned — per-analyst % per phase) ─────────────────────
-function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnected, clientId, tenantId}) {
-  const isExistingSP = !!(project?.spId);       // already in List_Pulse
-  const isExistingLocal = project && !project?.spId; // tool-only project being edited
-  // For new projects: default to SP if connected; user can toggle off
+function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, isSpConnected, clientId, tenantId}) {
+  const isExistingSP = !!(project?.spId);
+  const isExistingLocal = project && !project?.spId;
   const [syncToSP, setSyncToSP] = useState(isExistingSP ? true : (isSpConnected && !isExistingLocal));
 
   const [showMoskit, setShowMoskit] = useState(false);
@@ -2193,85 +2193,101 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
   const [client,   setClient]   = useState(project?.client||'');
   const [status,   setStatus]   = useState(project?.status||'');
   const [ciclo,    setCiclo]    = useState(project?.ciclo||'');
+
+  // ── Analysts state ──
   const [analysts, setAnalysts] = useState(project?.analysts ? [...project.analysts] : []);
   const [phases,   setPhases]   = useState(()=>{
     const p={};
     PHASES.forEach(ph=>{
       const ex = project?.phases?.[ph.key];
-      p[ph.key] = {
-        start: fmtDateForInput(ex?.start)||'',
-        end:   fmtDateForInput(ex?.end)||'',
-        pcts:  ex?.pcts ? [...ex.pcts] : [],
-      };
+      p[ph.key] = { start:fmtDateForInput(ex?.start)||'', end:fmtDateForInput(ex?.end)||'', pcts:ex?.pcts?[...ex.pcts]:[] };
     });
     return p;
   });
 
-  // Keep pcts arrays in sync when analysts list changes
-  function syncPctsLength(newAnalysts, prevPhases) {
+  function syncPctsLength(newList, prevPhases) {
     const updated={};
     PHASES.forEach(ph=>{
-      const cur = prevPhases[ph.key].pcts||[];
-      updated[ph.key] = {...prevPhases[ph.key], pcts: newAnalysts.map((_,i)=>cur[i]||0)};
+      const cur=prevPhases[ph.key].pcts||[];
+      updated[ph.key]={...prevPhases[ph.key], pcts:newList.map((_,i)=>cur[i]||0)};
     });
     return updated;
   }
-
-  function addAnalyst() {
-    const newA = [...analysts,''];
-    setAnalysts(newA);
-    setPhases(prev=>syncPctsLength(newA,prev));
-  }
+  function addAnalyst() { const n=[...analysts,'']; setAnalysts(n); setPhases(p=>syncPctsLength(n,p)); }
   function removeAnalyst(idx) {
-    const newA = analysts.filter((_,i)=>i!==idx);
-    setAnalysts(newA);
-    setPhases(prev=>{
-      const updated={};
-      PHASES.forEach(ph=>{
-        const pcts=[...prev[ph.key].pcts];
-        pcts.splice(idx,1);
-        updated[ph.key]={...prev[ph.key],pcts};
-      });
-      return updated;
-    });
+    const n=analysts.filter((_,i)=>i!==idx); setAnalysts(n);
+    setPhases(prev=>{ const u={}; PHASES.forEach(ph=>{ const pc=[...prev[ph.key].pcts]; pc.splice(idx,1); u[ph.key]={...prev[ph.key],pcts:pc}; }); return u; });
   }
-  function updateAnalystName(idx,name) {
-    setAnalysts(prev=>prev.map((a,i)=>i===idx?name:a));
-  }
-  function updatePhaseField(phKey,field,val) {
-    setPhases(prev=>({...prev,[phKey]:{...prev[phKey],[field]:val}}));
-  }
+  function updateAnalystName(idx,name) { setAnalysts(prev=>prev.map((a,i)=>i===idx?name:a)); }
+  function updatePhaseField(phKey,field,val) { setPhases(prev=>({...prev,[phKey]:{...prev[phKey],[field]:val}})); }
   function updatePct(phKey,idx,val) {
-    setPhases(prev=>{
-      const pcts=[...prev[phKey].pcts];
-      pcts[idx]=Math.max(0,parseFloat(val)||0);
-      return {...prev,[phKey]:{...prev[phKey],pcts}};
+    setPhases(prev=>{ const pc=[...prev[phKey].pcts]; pc[idx]=Math.max(0,parseFloat(val)||0); return {...prev,[phKey]:{...prev[phKey],pcts:pc}}; });
+  }
+
+  // ── Heads state (identical pattern, max 3) ──
+  const [heads,      setHeads]      = useState(()=>{
+    const h=[];
+    if (project?.head1?.trim()) h.push(project.head1.trim());
+    if (project?.head2?.trim()) h.push(project.head2.trim());
+    if (project?.head3?.trim()) h.push(project.head3.trim());
+    return h;
+  });
+  const [headPhases, setHeadPhases] = useState(()=>{
+    const p={};
+    PHASES.forEach(ph=>{
+      const ex=project?.headPhases?.[ph.key];
+      p[ph.key]={ pcts: ex?.pcts ? [...ex.pcts] : [] };
     });
+    return p;
+  });
+
+  function syncHeadPctsLength(newList, prevHP) {
+    const u={};
+    PHASES.forEach(ph=>{ const cur=prevHP[ph.key].pcts||[]; u[ph.key]={ pcts:newList.map((_,i)=>cur[i]||0) }; });
+    return u;
+  }
+  function addHead() {
+    if (heads.length>=3) return;
+    const n=[...heads,'']; setHeads(n); setHeadPhases(p=>syncHeadPctsLength(n,p));
+  }
+  function removeHead(idx) {
+    const n=heads.filter((_,i)=>i!==idx); setHeads(n);
+    setHeadPhases(prev=>{ const u={}; PHASES.forEach(ph=>{ const pc=[...prev[ph.key].pcts]; pc.splice(idx,1); u[ph.key]={pcts:pc}; }); return u; });
+  }
+  function updateHeadName(idx,name) { setHeads(prev=>prev.map((h,i)=>i===idx?name:h)); }
+  function updateHeadPct(phKey,idx,val) {
+    setHeadPhases(prev=>{ const pc=[...prev[phKey].pcts]; pc[idx]=Math.max(0,parseFloat(val)||0); return {...prev,[phKey]:{pcts:pc}}; });
   }
 
   function handleSave() {
     if (!title.trim()) return;
     const filteredA = analysts.filter(a=>a.trim());
-    // Remove pcts for empty analyst rows
+    const filteredH = heads.filter(h=>h.trim());
     const filteredPhases={};
     PHASES.forEach(ph=>{
-      const pcts = analysts.map((a,i)=>a.trim()?phases[ph.key].pcts[i]||0:null).filter(p=>p!==null);
+      const pcts=analysts.map((a,i)=>a.trim()?phases[ph.key].pcts[i]||0:null).filter(p=>p!==null);
       filteredPhases[ph.key]={...phases[ph.key], pcts};
     });
-    // source: 'sharepoint' → goes to List_Pulse + dist file
-    //         'local'      → goes to dist file only (shared via SP JSON)
-    const source = isExistingSP ? 'sharepoint'
-                 : (syncToSP && isSpConnected ? 'sharepoint' : 'local');
+    const filteredHeadPhases={};
+    PHASES.forEach(ph=>{
+      const pcts=heads.map((h,i)=>h.trim()?headPhases[ph.key].pcts[i]||0:null).filter(p=>p!==null);
+      filteredHeadPhases[ph.key]={ start:phases[ph.key].start, end:phases[ph.key].end, pcts };
+    });
+    const source = isExistingSP ? 'sharepoint' : (syncToSP&&isSpConnected ? 'sharepoint' : 'local');
     onSave({
-      id:     project?.id||'proj_'+Date.now(),
-      spId:   project?.spId||null,
-      title:  title.trim(),
-      client: client.trim(),
+      id:         project?.id||'proj_'+Date.now(),
+      spId:       project?.spId||null,
+      title:      title.trim(),
+      client:     client.trim(),
       status,
-      ciclo:  ciclo.trim(),
+      ciclo:      ciclo.trim(),
       source,
-      analysts: filteredA,
-      phases:   filteredPhases,
+      analysts:   filteredA,
+      phases:     filteredPhases,
+      head1:      filteredH[0]||null,
+      head2:      filteredH[1]||null,
+      head3:      filteredH[2]||null,
+      headPhases: filteredHeadPhases,
     });
   }
 
@@ -2381,14 +2397,47 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
             </datalist>
           </section>
 
-          {/* ── Fases e Alocação ── */}
+          {/* ── Heads ── */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Heads Alocados</h3>
+              <button onClick={addHead} disabled={heads.length>=3}
+                className="text-xs text-violet-600 hover:text-violet-800 font-semibold border border-violet-200 px-2.5 py-1 rounded-lg hover:bg-violet-50 transition disabled:opacity-40">
+                + Adicionar Head
+              </button>
+            </div>
+            {heads.length===0?(
+              <p className="text-slate-400 text-sm italic py-2">Nenhum head adicionado. Use o botão acima (máx. 3).</p>
+            ):(
+              <div className="space-y-2">
+                {heads.map((h,idx)=>(
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 w-24 shrink-0">Head {idx+1}</span>
+                    <input value={h} onChange={e=>updateHeadName(idx,e.target.value)}
+                      list="headDatalist"
+                      className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-violet-200"
+                      placeholder="Nome do head"/>
+                    <button onClick={()=>removeHead(idx)}
+                      className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition text-lg leading-none shrink-0">
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <datalist id="headDatalist">
+              {(allHeads||[]).map(h=><option key={h} value={h}/>)}
+            </datalist>
+          </section>
+
+          {/* ── Fases e Alocação (Analistas + Heads) ── */}
           <section>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Fases e Percentuais</h3>
             <div className="space-y-2">
               {PHASES.map(ph=>{
-                const phase = phases[ph.key];
-                const total = totalPhasePct(phase);
-                const hasDate = phase.start||phase.end;
+                const phase    = phases[ph.key];
+                const totalA   = totalPhasePct(phase);
+                const totalH   = totalPhasePct({pcts: headPhases[ph.key].pcts});
                 return (
                   <div key={ph.key} className="border border-slate-200 rounded-xl overflow-hidden">
                     {/* Phase header row */}
@@ -2401,16 +2450,22 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
                         <input type="date" value={phase.end} onChange={e=>updatePhaseField(ph.key,'end',e.target.value)}
                           className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-300"/>
                       </div>
-                      {total>0&&(
-                        <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${
-                          total>100?'bg-red-100 text-red-700':total>90?'bg-yellow-100 text-yellow-700':'bg-green-100 text-green-700'}`}>
-                          Total: {Math.round(total)}%
-                        </span>
-                      )}
+                      <div className="ml-auto flex items-center gap-2">
+                        {totalA>0&&(
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalA>100?'bg-red-100 text-red-700':totalA>90?'bg-yellow-100 text-yellow-700':'bg-green-100 text-green-700'}`}>
+                            Analistas: {Math.round(totalA)}%
+                          </span>
+                        )}
+                        {totalH>0&&(
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${totalH>100?'bg-red-100 text-red-700':totalH>90?'bg-yellow-100 text-yellow-700':'bg-violet-100 text-violet-700'}`}>
+                            Heads: {Math.round(totalH)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Per-analyst pct rows */}
-                    {analysts.length>0?(
+                    {analysts.length>0&&(
                       <div className="divide-y divide-slate-50">
                         {analysts.map((a,idx)=>(
                           <div key={idx} className="flex items-center gap-3 px-4 py-2">
@@ -2426,8 +2481,33 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
                           </div>
                         ))}
                       </div>
-                    ):(
-                      <p className="px-4 py-2 text-xs text-slate-400 italic">Adicione analistas acima para definir % por pessoa e fase.</p>
+                    )}
+
+                    {/* Per-head pct rows */}
+                    {heads.length>0&&(
+                      <>
+                        {analysts.length>0&&<div className="border-t border-slate-100 mx-4"/>}
+                        <div className="divide-y divide-slate-50">
+                          {heads.map((h,idx)=>(
+                            <div key={idx} className="flex items-center gap-3 px-4 py-2 bg-violet-50/30">
+                              <span className="text-xs text-violet-600 font-medium w-4 shrink-0">H</span>
+                              <span className="text-xs text-slate-500 flex-1 truncate">{h||`Head ${idx+1}`}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <input type="number" min={0} max={200} step={5}
+                                  value={headPhases[ph.key].pcts[idx]!==undefined?headPhases[ph.key].pcts[idx]:''}
+                                  onChange={e=>updateHeadPct(ph.key,idx,e.target.value)}
+                                  className="border border-violet-200 rounded-lg px-2 py-1 text-xs w-20 text-right focus:ring-1 focus:ring-violet-300"
+                                  placeholder="0"/>
+                                <span className="text-xs text-slate-400 w-4">%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {analysts.length===0&&heads.length===0&&(
+                      <p className="px-4 py-2 text-xs text-slate-400 italic">Adicione analistas ou heads acima para definir %.</p>
                     )}
                   </div>
                 );
@@ -2480,11 +2560,16 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
   const grouped = isHead
     ? allProjects
         .filter(p=>_projHeads(p).includes(analyst))
-        .map(proj=>({
-          proj,
-          phases: PHASES.map(ph=>({...ph,phase:proj.phases[ph.key]}))
-            .filter(ph=>ph.phase?.start&&ph.phase?.end),
-        }))
+        .map(proj=>{
+          const hidx=_projHeads(proj).indexOf(analyst);
+          return {
+            proj,
+            phases: PHASES.map(ph=>{
+              const hp=proj.headPhases?.[ph.key];
+              return {...ph, phase:hp, pct:hp?.pcts?.[hidx]||0};
+            }).filter(ph=>ph.phase?.start&&ph.phase?.end),
+          };
+        })
         .filter(g=>g.phases.length>0)
     : allProjects.filter(p=>p.analysts.includes(analyst)).map(proj=>{
         const idx=proj.analysts.indexOf(analyst);
@@ -2817,7 +2902,7 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
                         <th className="px-4 py-1.5 text-left text-slate-500 font-medium">Fase</th>
                         <th className="px-3 py-1.5 text-slate-500 font-medium text-center">Início</th>
                         <th className="px-3 py-1.5 text-slate-500 font-medium text-center">Fim</th>
-                        {!isHead&&<th className="px-3 py-1.5 text-slate-500 font-medium text-center">% Analista</th>}
+                        <th className="px-3 py-1.5 text-slate-500 font-medium text-center">{isHead?'% Head':'% Analista'}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2826,13 +2911,13 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
                           <td className="px-4 py-2 font-medium text-slate-700">{label}</td>
                           <td className="px-3 py-2 text-slate-500 text-center">{fmtDateDisplay(phase.start)}</td>
                           <td className="px-3 py-2 text-slate-500 text-center">{fmtDateDisplay(phase.end)}</td>
-                          {!isHead&&(
-                            <td className="px-3 py-2 text-center">
-                              <span className={`font-bold px-2 py-0.5 rounded ${pct>100?'text-red-700 bg-red-50':pct>90?'text-yellow-700 bg-yellow-50':'text-green-700 bg-green-50'}`}>
+                          <td className="px-3 py-2 text-center">
+                            {pct>0?(
+                              <span className={`font-bold px-2 py-0.5 rounded ${pct>100?'text-red-700 bg-red-50':pct>90?'text-yellow-700 bg-yellow-50':isHead?'text-violet-700 bg-violet-50':'text-green-700 bg-green-50'}`}>
                                 {pct}%
                               </span>
-                            </td>
-                          )}
+                            ):<span className="text-slate-300 text-xs">—</span>}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
