@@ -484,6 +484,75 @@ function computeAllocationsDaily(projects, days) {
   return result;
 }
 
+// ─── Head Allocation Computation (100% per project-phase supervised) ──────────
+function _projHeads(proj) {
+  return [proj.head1,proj.head2,proj.head3].filter(h=>h&&h!==PLACEHOLDER);
+}
+function computeHeadAllocations(projects) {
+  const result={};
+  projects.forEach(proj=>{
+    _projHeads(proj).forEach(head=>{
+      if(!result[head]) result[head]={};
+      PHASES.forEach(ph=>{
+        const phase=proj.phases[ph.key];
+        if(!phase?.start||!phase?.end) return;
+        const sMk=monthKey(parseSPDate(phase.start)), eMk=monthKey(parseSPDate(phase.end));
+        if(!sMk||!eMk) return;
+        rangeMonths(sMk,eMk).forEach(mk=>{
+          const [y,m]=mk.split('-').map(Number);
+          const dim=new Date(y,m,0).getDate();
+          const ov=daysOverlapInMonth(phase.start,phase.end,mk);
+          if(ov>0) result[head][mk]=(result[head][mk]||0)+100*(ov/dim);
+        });
+      });
+    });
+  });
+  Object.values(result).forEach(a=>Object.keys(a).forEach(k=>{a[k]=Math.round(a[k]);}));
+  return result;
+}
+function computeHeadAllocationsWeekly(projects, weeks) {
+  const result={};
+  projects.forEach(proj=>{
+    _projHeads(proj).forEach(head=>{
+      if(!result[head]) result[head]={};
+      PHASES.forEach(ph=>{
+        const phase=proj.phases[ph.key];
+        if(!phase?.start||!phase?.end) return;
+        weeks.forEach(wk=>{
+          const wkS=parseSPDate(wk), wkE=calAddDays(wkS,6);
+          const phS=parseSPDate(phase.start), phE=parseSPDate(phase.end);
+          if(!phS||!phE) return;
+          const oS=phS>wkS?phS:wkS, oE=phE<wkE?phE:wkE;
+          const ov=Math.max(0,Math.round((oE-oS)/864e5)+1);
+          if(ov>0) result[head][wk]=(result[head][wk]||0)+100*(ov/7);
+        });
+      });
+    });
+  });
+  Object.values(result).forEach(a=>Object.keys(a).forEach(k=>{a[k]=Math.round(a[k]);}));
+  return result;
+}
+function computeHeadAllocationsDaily(projects, days) {
+  const result={};
+  projects.forEach(proj=>{
+    _projHeads(proj).forEach(head=>{
+      if(!result[head]) result[head]={};
+      PHASES.forEach(ph=>{
+        const phase=proj.phases[ph.key];
+        if(!phase?.start||!phase?.end) return;
+        const phS=parseSPDate(phase.start), phE=parseSPDate(phase.end);
+        if(!phS||!phE) return;
+        days.forEach(dk=>{
+          const d=parseSPDate(dk);
+          if(d&&d>=phS&&d<=phE) result[head][dk]=(result[head][dk]||0)+100;
+        });
+      });
+    });
+  });
+  Object.values(result).forEach(a=>Object.keys(a).forEach(k=>{a[k]=Math.round(a[k]);}));
+  return result;
+}
+
 // ─── Traffic Light ────────────────────────────────────────────────────────────
 function cellClass(v) { return !v?'cell-empty':v<=90?'cell-green':v<=100?'cell-yellow':'cell-red'; }
 function TrafficDot({pct,vacation}) {
@@ -670,6 +739,14 @@ async function fetchTeamMembers(token, siteUrl) {
     return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
   } catch { return []; }
 }
+async function fetchHeadMembers(token, siteUrl) {
+  try {
+    const base = _spListBase(siteUrl, SP_TEAM_LIST);
+    const url  = `${base}/items?$select=Title,Classificacao&$filter=Classificacao eq 'Consultor'&$top=500`;
+    const json = await spFetch(token, url);
+    return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
+  } catch { return []; }
+}
 // Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
 // 1 ou 2 → acesso completo (Gestão + Pulse). 3+ → somente Pulse. 99 = não encontrado/erro.
 // Busca sem $select para evitar problemas com nomes internos de coluna no SP.
@@ -816,6 +893,8 @@ function App() {
   const [accessLevel,      setAccessLevel]      = useState(null);   // 1|2=full 3+=pulse-only 99=não encontrado
   const [extraAllocations, setExtraAllocations] = useState([]);
   const [vacations,        setVacations]        = useState([]);
+  const [headMembers,      setHeadMembers]      = useState([]);
+  const [entityView,       setEntityView]       = useState('analyst'); // 'analyst' | 'head'
 
   // Only persist config locally when it wasn't baked into APP_CONFIG
   useEffect(()=>{ if (!APP_CONFIG.clientId) saveLocal({clientId,tenantId}); },[clientId,tenantId]);
@@ -828,24 +907,34 @@ function App() {
   const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
   const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
   const allocations     = useMemo(()=>computeAllocations(filteredProjects),[filteredProjects]);
-  // Always show all team analysts; fall back to allocation-derived list if team not loaded
+  const headAllocations = useMemo(()=>computeHeadAllocations(filteredProjects),[filteredProjects]);
+  // Analyst list: SP team (Analistas) or fallback from allocation keys
   const analysts        = useMemo(()=>{
     if (teamMembers.length>0) return teamMembers;
     return Object.keys(allocations).sort();
   },[teamMembers, allocations]);
+  // Head list: SP team (Consultores) or fallback from project head fields
+  const heads           = useMemo(()=>{
+    if (headMembers.length>0) return headMembers;
+    const set=new Set();
+    filteredProjects.forEach(p=>_projHeads(p).forEach(h=>set.add(h)));
+    return [...set].sort();
+  },[headMembers, filteredProjects]);
   const months          = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
 
   // ── Load all data: SP items + dist file → merged projects ──
   const loadAll = useCallback(async(token)=>{
     setLoading(true); setError('');
     try {
-      const [spItems, dist, team] = await Promise.all([
+      const [spItems, dist, team, hteam] = await Promise.all([
         fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
         fetchDistFile(token, SP_SITE_URL),
         fetchTeamMembers(token, SP_SITE_URL),
+        fetchHeadMembers(token, SP_SITE_URL),
       ]);
       setDistData(dist);
       setTeamMembers(team);
+      setHeadMembers(hteam);
       setProjects(mergeProjectsWithDist(spItems, dist));
       setExtraAllocations(dist.extraAllocations||[]);  // shared via dist.json in SP
       setVacations(dist.vacations||[]);               // shared via dist.json in SP
@@ -1163,11 +1252,17 @@ function App() {
   }
 
   // ── Gestão module ──
+  // Entity-aware data: switch between Analistas and Heads
+  const isHeadView   = entityView==='head';
+  const activeNames  = isHeadView ? heads     : analysts;
+  const activeAllocs = isHeadView ? headAllocations : allocations;
+
   return (
     <div className="min-h-screen bg-slate-50">
       <AppHeader view={view} setView={setView} authState={authState}
         onSignOut={signOut} projectCount={projects.length} loading={loading}
-        onRefresh={()=>loadAll(authState.token)} module={module} onHome={()=>setModule(null)}/>
+        onRefresh={()=>loadAll(authState.token)} module={module} onHome={()=>setModule(null)}
+        entityView={entityView} setEntityView={setEntityView}/>
 
       {saveMsgBanner}
 
@@ -1190,14 +1285,15 @@ function App() {
           </div>
         )}
         {view==='dashboard'&&(
-          <DashboardView analysts={analysts} allocations={allocations} months={months}
+          <DashboardView analysts={activeNames} allocations={activeAllocs} months={months}
             monthRange={monthRange} setMonthRange={setMonthRange} onAnalystClick={setShowAnalystDetail}
-            vacations={vacations}/>
+            vacations={vacations} entityView={entityView}/>
         )}
         {view==='monthly'&&(
-          <MonthlyGrid analysts={analysts} allocations={allocations} months={months}
+          <MonthlyGrid analysts={activeNames} allocations={activeAllocs} months={months}
             monthRange={monthRange} setMonthRange={setMonthRange} onAnalystClick={setShowAnalystDetail}
-            projects={filteredProjects} extraAllocations={extraAllocations} vacations={vacations}/>
+            projects={filteredProjects} extraAllocations={extraAllocations} vacations={vacations}
+            entityType={entityView}/>
         )}
         {view==='projects'&&(
           <ProjectsView projects={filteredProjects} onEdit={p=>setShowEdit(p)} onNew={()=>setShowEdit('new')}
@@ -1224,6 +1320,7 @@ function App() {
         <AnalystDetailModal analyst={showAnalystDetail} allProjects={filteredProjects}
           extraAllocations={extraAllocations} onSaveExtras={saveExtraAllocs}
           vacations={vacations} onSaveVacations={saveVacations}
+          entityType={entityView}
           onClose={()=>setShowAnalystDetail(null)}/>
       )}
     </div>
@@ -1231,13 +1328,14 @@ function App() {
 }
 
 // ─── Header (only shown when authenticated & module selected) ─────────────────
-function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefresh,module,onHome}) {
+function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefresh,module,onHome,entityView,setEntityView}) {
   const navs=[
     {k:'dashboard',  label:'📊 Dashboard'},
-    {k:'monthly',    label:'📅 Grade Mensal'},
+    {k:'monthly',    label:'📅 Grade'},
     {k:'projects',   label:'📁 Projetos'},
     {k:'suggestions',label:'💡 Sugestões'},
   ];
+  const showEntityToggle = module==='gestao' && (view==='dashboard'||view==='monthly');
   return (
     <header className="bg-white border-b border-slate-200 shadow-sm mb-4 sticky top-0 z-30">
       <div className="max-w-screen-2xl mx-auto px-4 py-2.5 flex items-center gap-3 flex-wrap">
@@ -1255,13 +1353,23 @@ function AppHeader({view,setView,authState,onSignOut,projectCount,loading,onRefr
           {module==='gestao'&&projectCount>0&&<span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">{projectCount} proj.</span>}
         </div>
         {module==='gestao'&&(
-        <nav className="flex gap-1 flex-wrap flex-1">
+        <nav className="flex gap-1 flex-wrap flex-1 items-center">
           {navs.map(n=>(
             <button key={n.k} onClick={()=>setView(n.k)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${view===n.k?'bg-indigo-600 text-white':'text-slate-600 hover:bg-slate-100'}`}>
               {n.label}
             </button>
           ))}
+          {showEntityToggle&&(
+            <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5 ml-2">
+              {['analyst','head'].map(e=>(
+                <button key={e} onClick={()=>setEntityView(e)}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition ${entityView===e?'bg-white shadow text-indigo-600':'text-slate-500 hover:text-slate-700'}`}>
+                  {e==='analyst'?'👤 Analistas':'🎯 Heads'}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
         )}
         {(module==='pulse'||module==='calendar')&&<div className="flex-1"/>}
@@ -1545,7 +1653,7 @@ function MonthRangePicker({monthRange,setMonthRange}) {
 }
 
 // ─── Dashboard View ───────────────────────────────────────────────────────────
-function DashboardView({analysts,allocations,months,monthRange,setMonthRange,onAnalystClick,vacations}) {
+function DashboardView({analysts,allocations,months,monthRange,setMonthRange,onAnalystClick,vacations,entityView}) {
   if (analysts.length===0) return (
     <div className="mt-10 text-center text-slate-400">
       <p className="text-4xl mb-3">📊</p>
@@ -1560,7 +1668,9 @@ function DashboardView({analysts,allocations,months,monthRange,setMonthRange,onA
   return (
     <div className="fade-in mt-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-lg font-bold text-slate-800">Dashboard de Alocação</h2>
+        <h2 className="text-lg font-bold text-slate-800">
+          {entityView==='head'?'Dashboard de Alocação — Heads':'Dashboard de Alocação — Analistas'}
+        </h2>
         <MonthRangePicker monthRange={monthRange} setMonthRange={setMonthRange}/>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1646,14 +1756,19 @@ function mergeExtras(base, extras, cols, granularity) {
 }
 
 // ─── Monthly / Weekly / Daily Grid ────────────────────────────────────────────
-function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAnalystClick,projects,extraAllocations,vacations}) {
+function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAnalystClick,projects,extraAllocations,vacations,entityType}) {
   const [gridView, setGridView] = useState('month');
+  const isHead = entityType==='head';
 
   const weeks = useMemo(()=> gridView==='week' ? rangeWeeks(monthRange.start,monthRange.end) : [], [gridView,monthRange]);
   const days  = useMemo(()=> gridView==='day'  ? rangeDays(monthRange.start,monthRange.end,45) : [], [gridView,monthRange]);
 
-  const weekAllocs = useMemo(()=> gridView==='week' ? computeAllocationsWeekly(projects||[],weeks)  : {}, [gridView,projects,weeks]);
-  const dayAllocs  = useMemo(()=> gridView==='day'  ? computeAllocationsDaily(projects||[],days)    : {}, [gridView,projects,days]);
+  const weekAllocs = useMemo(()=> gridView==='week'
+    ? (isHead ? computeHeadAllocationsWeekly(projects||[],weeks) : computeAllocationsWeekly(projects||[],weeks))
+    : {}, [gridView,isHead,projects,weeks]);
+  const dayAllocs  = useMemo(()=> gridView==='day'
+    ? (isHead ? computeHeadAllocationsDaily(projects||[],days) : computeAllocationsDaily(projects||[],days))
+    : {}, [gridView,isHead,projects,days]);
 
   // Merge extra (local-only) allocations on top of computed ones
   const mergedMonth = useMemo(()=>mergeExtras(allocations,   extraAllocations, months, 'month'), [allocations,   extraAllocations, months]);
@@ -1691,7 +1806,9 @@ function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAna
   return (
     <div className="fade-in mt-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-lg font-bold text-slate-800">Grade de Alocação</h2>
+        <h2 className="text-lg font-bold text-slate-800">
+          {isHead?'Grade de Alocação — Heads':'Grade de Alocação — Analistas'}
+        </h2>
         <div className="flex items-center gap-2 flex-wrap">
           {/* View switcher */}
           <div className="flex bg-slate-100 rounded-lg p-0.5 gap-0.5">
@@ -2308,17 +2425,27 @@ function ProjectModal({project, allAnalysts, onSave, onClose, saving, isSpConnec
 }
 
 // ─── Analyst Detail Modal ─────────────────────────────────────────────────────
-function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSaveExtras,vacations,onSaveVacations}) {
-  const projs = allProjects.filter(p=>p.analysts.includes(analyst));
-  const grouped = projs.map(proj=>{
-    const idx = proj.analysts.indexOf(analyst);
-    const phases = PHASES.map(ph=>({
-      ...ph,
-      phase: proj.phases[ph.key],
-      pct:   proj.phases[ph.key]?.pcts?.[idx]||0,
-    })).filter(ph=>ph.phase?.start&&ph.phase?.end&&ph.pct>0);
-    return {proj,phases};
-  }).filter(g=>g.phases.length>0);
+function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSaveExtras,vacations,onSaveVacations,entityType}) {
+  const isHead = entityType==='head';
+
+  // Analyst mode: projects where this person is an analyst, with their pct per phase
+  // Head mode: projects where this person is Head_1/2/3, showing phase dates
+  const grouped = isHead
+    ? allProjects
+        .filter(p=>_projHeads(p).includes(analyst))
+        .map(proj=>({
+          proj,
+          phases: PHASES.map(ph=>({...ph,phase:proj.phases[ph.key]}))
+            .filter(ph=>ph.phase?.start&&ph.phase?.end),
+        }))
+        .filter(g=>g.phases.length>0)
+    : allProjects.filter(p=>p.analysts.includes(analyst)).map(proj=>{
+        const idx=proj.analysts.indexOf(analyst);
+        const phases=PHASES.map(ph=>({
+          ...ph, phase:proj.phases[ph.key], pct:proj.phases[ph.key]?.pcts?.[idx]||0,
+        })).filter(ph=>ph.phase?.start&&ph.phase?.end&&ph.pct>0);
+        return {proj,phases};
+      }).filter(g=>g.phases.length>0);
 
   const myExtras = (extraAllocations||[]).filter(e=>e.analyst===analyst);
 
@@ -2621,9 +2748,13 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
 
           {/* ══ ALOCAÇÃO PRINCIPAL ══ */}
           <section>
-            <h3 className="text-sm font-bold text-slate-800 mb-3">Alocação principal (SharePoint)</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-3">
+              {isHead?'Projetos como Head (SharePoint)':'Alocação principal (SharePoint)'}
+            </h3>
             {grouped.length===0&&(
-              <p className="text-slate-400 text-sm italic py-4 text-center">Nenhuma fase com datas e % preenchidos.</p>
+              <p className="text-slate-400 text-sm italic py-4 text-center">
+                {isHead?'Nenhum projeto como Head com fases cadastradas.':'Nenhuma fase com datas e % preenchidos.'}
+              </p>
             )}
             <div className="space-y-3">
               {grouped.map(({proj,phases})=>(
@@ -2639,7 +2770,7 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
                         <th className="px-4 py-1.5 text-left text-slate-500 font-medium">Fase</th>
                         <th className="px-3 py-1.5 text-slate-500 font-medium text-center">Início</th>
                         <th className="px-3 py-1.5 text-slate-500 font-medium text-center">Fim</th>
-                        <th className="px-3 py-1.5 text-slate-500 font-medium text-center">% Analista</th>
+                        {!isHead&&<th className="px-3 py-1.5 text-slate-500 font-medium text-center">% Analista</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -2648,11 +2779,13 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
                           <td className="px-4 py-2 font-medium text-slate-700">{label}</td>
                           <td className="px-3 py-2 text-slate-500 text-center">{fmtDateDisplay(phase.start)}</td>
                           <td className="px-3 py-2 text-slate-500 text-center">{fmtDateDisplay(phase.end)}</td>
-                          <td className="px-3 py-2 text-center">
-                            <span className={`font-bold px-2 py-0.5 rounded ${pct>100?'text-red-700 bg-red-50':pct>90?'text-yellow-700 bg-yellow-50':'text-green-700 bg-green-50'}`}>
-                              {pct}%
-                            </span>
-                          </td>
+                          {!isHead&&(
+                            <td className="px-3 py-2 text-center">
+                              <span className={`font-bold px-2 py-0.5 rounded ${pct>100?'text-red-700 bg-red-50':pct>90?'text-yellow-700 bg-yellow-50':'text-green-700 bg-green-50'}`}>
+                                {pct}%
+                              </span>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
