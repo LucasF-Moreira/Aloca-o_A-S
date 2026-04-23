@@ -71,6 +71,18 @@ const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
 const LS_KEY         = 'ct_aloc_v4';
 const HEAD_KEYS      = ['Head_1','Head_2','Head_3'];
+// Mapeamento explícito: chave da fase → nome interno real da coluna no SP
+// Se uma coluna tiver StaticName diferente do exibido, corrija aqui.
+const HEAD_PCT_COLS  = {
+  Planejamento:    'Consultor_Head_Planejamento_PCT',
+  Inscricao:       'Consultor_Head_Inscricao_PCT',
+  Etapa_1:         'Consultor_Head_Etapa_1_PCT',
+  Etapa_2:         'Consultor_Head_Etapa_2_PCT',
+  Etapa_3:         'Consultor_Head_Etapa_3_PCT',
+  Etapa_4:         'Consultor_Head_Etapa_4_PCT',
+  Etapa_5:         'Consultor_Head_Etapa_5_PCT',
+  Relatorio_Final: 'Consultor_Head_Relatorio_Final_PCT',  // ajuste se SP retornar nome diferente
+};
 
 // ─── Pulse Extra Fields ───────────────────────────────────────────────────────
 // NOTA: 'k' = nome interno da coluna no SP (verificar com Configurações da Lista → coluna → Nome interno).
@@ -234,8 +246,8 @@ const SP_SELECT      = [
   ...PHASES.flatMap(ph=>[
     `Inicio_${ph.key}`,`Fim_${ph.key}`,
     `Analista_${ph.key}_PCT`,
-    `Consultor_Head_${ph.key}_PCT`,
-  ]),
+    HEAD_PCT_COLS[ph.key],
+  ].filter(Boolean)),
   ...PULSE_FIELDS.map(f=>f.k),
 ].join(',');
 
@@ -341,7 +353,7 @@ function parseSPItem(item) {
   const nh = Math.max(projHeadNames.length, 1);
   const headPhases = {};
   PHASES.forEach(ph=>{
-    const tot     = parsePct(item[`Consultor_Head_${ph.key}_PCT`]);
+    const tot     = parsePct(item[HEAD_PCT_COLS[ph.key]]);
     const perEach = tot>0 ? Math.round(tot/nh) : 0;
     headPhases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
@@ -391,10 +403,11 @@ function buildSPPayload(project) {
     const headPhase = project.headPhases?.[ph.key]||{};
     const total     = totalPhasePct(phase);
     const headTotal = totalPhasePct(headPhase);
-    payload[`Inicio_${ph.key}`]              = phase.start ? fmtDateForSP(phase.start) : null;
-    payload[`Fim_${ph.key}`]                 = phase.end   ? fmtDateForSP(phase.end)   : null;
-    payload[`Analista_${ph.key}_PCT`]        = pctToSP(total);
-    payload[`Consultor_Head_${ph.key}_PCT`]  = pctToSP(headTotal);
+    payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
+    payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
+    payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+    const headCol = HEAD_PCT_COLS[ph.key];
+    if (headCol) payload[headCol]     = pctToSP(headTotal);
   });
   return payload;
 }
@@ -1145,10 +1158,11 @@ function App() {
         const headPhase = project.headPhases?.[ph.key]||{};
         const total     = totalPhasePct(phase);
         const headTotal = totalPhasePct(headPhase);
-        payload[`Inicio_${ph.key}`]             = phase.start ? fmtDateForSP(phase.start) : null;
-        payload[`Fim_${ph.key}`]                = phase.end   ? fmtDateForSP(phase.end)   : null;
-        payload[`Analista_${ph.key}_PCT`]       = pctToSP(total);
-        payload[`Consultor_Head_${ph.key}_PCT`] = pctToSP(headTotal);
+        payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
+        payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
+        payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+        const headCol = HEAD_PCT_COLS[ph.key];
+        if (headCol) payload[headCol]     = pctToSP(headTotal);
       });
       await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
       // Update per-analyst + per-head distributions in dist file
