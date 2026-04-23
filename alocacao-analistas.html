@@ -71,9 +71,8 @@ const SP_ENTITY      = 'SP.Data.List_PulseListItem';
 const PLACEHOLDER    = '.Selecione um(a) Talent';
 const LS_KEY         = 'ct_aloc_v4';
 const HEAD_KEYS      = ['Head_1','Head_2','Head_3'];
-// Mapeamento explícito: chave da fase → nome interno real da coluna no SP
-// Se uma coluna tiver StaticName diferente do exibido, corrija aqui.
-const HEAD_PCT_COLS  = {
+// Nomes candidatos (padrão). Serão validados/substituídos em runtime via fetchHeadPctCols().
+const HEAD_PCT_COLS_DEFAULT = {
   Planejamento:    'Consultor_Head_Planejamento_PCT',
   Inscricao:       'Consultor_Head_Inscricao_PCT',
   Etapa_1:         'Consultor_Head_Etapa_1_PCT',
@@ -81,8 +80,31 @@ const HEAD_PCT_COLS  = {
   Etapa_3:         'Consultor_Head_Etapa_3_PCT',
   Etapa_4:         'Consultor_Head_Etapa_4_PCT',
   Etapa_5:         'Consultor_Head_Etapa_5_PCT',
-  Relatorio_Final: 'Consultor_Head_Relatorio_Final_PCT',  // ajuste se SP retornar nome diferente
+  Relatorio_Final: 'Consultor_Head_Relatorio_Final_PCT',
 };
+// Resolvido em runtime — começa com os defaults e é atualizado após fetchHeadPctCols
+const HEAD_PCT_COLS = {...HEAD_PCT_COLS_DEFAULT};
+
+// Busca todos os campos da lista SP e resolve os StaticNames reais das colunas Head PCT.
+// Usa matching por palavras-chave para tolerar variações de nome (ex: encoding SP).
+async function fetchHeadPctCols(token, siteUrl, listName) {
+  try {
+    const base = _spListBase(siteUrl, listName);
+    const json = await spFetch(token, `${base}/fields?$select=StaticName,Title&$top=500`);
+    const fields = json.value||[];
+    PHASES.forEach(ph=>{
+      // Palavras que devem aparecer no StaticName (split por _ e lowercase)
+      const words = ph.key.toLowerCase().split('_');
+      const match = fields.find(f=>{
+        const s = f.StaticName.toLowerCase();
+        // Deve conter 'consultor', 'head', 'pct' e todos os fragmentos do ph.key
+        return s.includes('consultor') && s.includes('head') && s.includes('pct')
+          && words.every(w=>s.includes(w));
+      });
+      HEAD_PCT_COLS[ph.key] = match ? match.StaticName : null;
+    });
+  } catch { /* mantém defaults */ }
+}
 
 // ─── Pulse Extra Fields ───────────────────────────────────────────────────────
 // NOTA: 'k' = nome interno da coluna no SP (verificar com Configurações da Lista → coluna → Nome interno).
@@ -983,6 +1005,7 @@ function App() {
         fetchDistFile(token, SP_SITE_URL),
         fetchTeamMembers(token, SP_SITE_URL),
         fetchHeadMembers(token, SP_SITE_URL),
+        fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME), // resolve StaticNames reais
       ]);
       setDistData(dist);
       setTeamMembers(team);
