@@ -231,7 +231,11 @@ function calPhaseStatus(start, end, today) {
 const SP_SELECT      = [
   'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
   'KA',...HEAD_KEYS,...ANALYST_KEYS,
-  ...PHASES.flatMap(ph=>[`Inicio_${ph.key}`,`Fim_${ph.key}`,`Analista_${ph.key}_PCT`]),
+  ...PHASES.flatMap(ph=>[
+    `Inicio_${ph.key}`,`Fim_${ph.key}`,
+    `Analista_${ph.key}_PCT`,
+    `Consultor_Head_${ph.key}_PCT`,
+  ]),
   ...PULSE_FIELDS.map(f=>f.k),
 ].join(',');
 
@@ -315,7 +319,8 @@ function pctToSP(pct) { return pct/100; }
 function totalPhasePct(phase) { return (phase?.pcts||[]).reduce((a,b)=>a+(b||0), 0); }
 
 // ─── Parse SharePoint Item → internal model ───────────────────────────────────
-// phases[key].pcts = number[] (one per analyst, same order as analysts[])
+// phases[key].pcts     = number[] (one per analyst, same order as analysts[])
+// headPhases[key].pcts = number[] (one per head,    same order as head1/2/3)
 function parseSPItem(item) {
   const analysts = ANALYST_KEYS
     .map(k=>(item[k]||'').trim())
@@ -331,6 +336,19 @@ function parseSPItem(item) {
       pcts:  analysts.map(()=>perEach),   // equal split — user can adjust
     };
   });
+  // Head phases — same structure; total comes from Consultor_Head_${ph.key}_PCT
+  const projHeadNames = HEAD_KEYS.map(k=>(item[k]||'').trim()).filter(h=>h&&h!==PLACEHOLDER);
+  const nh = Math.max(projHeadNames.length, 1);
+  const headPhases = {};
+  PHASES.forEach(ph=>{
+    const tot     = parsePct(item[`Consultor_Head_${ph.key}_PCT`]);
+    const perEach = tot>0 ? Math.round(tot/nh) : 0;
+    headPhases[ph.key] = {
+      start: item[`Inicio_${ph.key}`]||null,
+      end:   item[`Fim_${ph.key}`]||null,
+      pcts:  projHeadNames.map(()=>perEach),  // equal split — user can adjust
+    };
+  });
   // Populate pulseData from PULSE_FIELDS — date fields converted to input format
   const pulseData = {};
   PULSE_FIELDS.forEach(f => {
@@ -338,20 +356,21 @@ function parseSPItem(item) {
     pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(raw)||'') : (raw!==undefined&&raw!==null ? String(raw) : '');
   });
   return {
-    id:       String(item.Id||item.indice||'r'+Math.random()),
-    spId:     item.Id||item.id||null,
-    indice:   Number(item.indice)||0,
-    title:    item.Nome_Programa||item.Title||'Sem título',
-    client:   item.Cliente||'',
-    status:   item.Status_Programa||'',
-    ciclo:    item.Ciclo_Orcamentario||'',
-    ka:       item.KA||'',
-    head1:    item.Head_1||'',
-    head2:    item.Head_2||'',
-    head3:    item.Head_3||'',
-    source:   'sharepoint',
+    id:         String(item.Id||item.indice||'r'+Math.random()),
+    spId:       item.Id||item.id||null,
+    indice:     Number(item.indice)||0,
+    title:      item.Nome_Programa||item.Title||'Sem título',
+    client:     item.Cliente||'',
+    status:     item.Status_Programa||'',
+    ciclo:      item.Ciclo_Orcamentario||'',
+    ka:         item.KA||'',
+    head1:      item.Head_1||'',
+    head2:      item.Head_2||'',
+    head3:      item.Head_3||'',
+    source:     'sharepoint',
     analysts,
     phases,
+    headPhases,
     pulseData,
   };
 }
@@ -368,11 +387,14 @@ function buildSPPayload(project) {
     payload[`Analista_${i+1}`] = project.analysts[i]||null;
   }
   PHASES.forEach(ph=>{
-    const phase = project.phases[ph.key]||{};
-    const total = totalPhasePct(phase);
-    payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
-    payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
-    payload[`Analista_${ph.key}_PCT`] = pctToSP(total);   // sum of all analyst pcts → decimal
+    const phase     = project.phases[ph.key]||{};
+    const headPhase = project.headPhases?.[ph.key]||{};
+    const total     = totalPhasePct(phase);
+    const headTotal = totalPhasePct(headPhase);
+    payload[`Inicio_${ph.key}`]              = phase.start ? fmtDateForSP(phase.start) : null;
+    payload[`Fim_${ph.key}`]                 = phase.end   ? fmtDateForSP(phase.end)   : null;
+    payload[`Analista_${ph.key}_PCT`]        = pctToSP(total);
+    payload[`Consultor_Head_${ph.key}_PCT`]  = pctToSP(headTotal);
   });
   return payload;
 }
@@ -491,18 +513,19 @@ function _projHeads(proj) {
 function computeHeadAllocations(projects) {
   const result={};
   projects.forEach(proj=>{
-    _projHeads(proj).forEach(head=>{
+    _projHeads(proj).forEach((head,idx)=>{
       if(!result[head]) result[head]={};
       PHASES.forEach(ph=>{
-        const phase=proj.phases[ph.key];
-        if(!phase?.start||!phase?.end) return;
+        const phase=proj.headPhases?.[ph.key];
+        const pct=phase?.pcts?.[idx]||0;
+        if(!phase?.start||!phase?.end||!pct) return;
         const sMk=monthKey(parseSPDate(phase.start)), eMk=monthKey(parseSPDate(phase.end));
         if(!sMk||!eMk) return;
         rangeMonths(sMk,eMk).forEach(mk=>{
           const [y,m]=mk.split('-').map(Number);
           const dim=new Date(y,m,0).getDate();
           const ov=daysOverlapInMonth(phase.start,phase.end,mk);
-          if(ov>0) result[head][mk]=(result[head][mk]||0)+100*(ov/dim);
+          if(ov>0) result[head][mk]=(result[head][mk]||0)+pct*(ov/dim);
         });
       });
     });
@@ -513,18 +536,19 @@ function computeHeadAllocations(projects) {
 function computeHeadAllocationsWeekly(projects, weeks) {
   const result={};
   projects.forEach(proj=>{
-    _projHeads(proj).forEach(head=>{
+    _projHeads(proj).forEach((head,idx)=>{
       if(!result[head]) result[head]={};
       PHASES.forEach(ph=>{
-        const phase=proj.phases[ph.key];
-        if(!phase?.start||!phase?.end) return;
+        const phase=proj.headPhases?.[ph.key];
+        const pct=phase?.pcts?.[idx]||0;
+        if(!phase?.start||!phase?.end||!pct) return;
         weeks.forEach(wk=>{
           const wkS=parseSPDate(wk), wkE=calAddDays(wkS,6);
           const phS=parseSPDate(phase.start), phE=parseSPDate(phase.end);
           if(!phS||!phE) return;
           const oS=phS>wkS?phS:wkS, oE=phE<wkE?phE:wkE;
           const ov=Math.max(0,Math.round((oE-oS)/864e5)+1);
-          if(ov>0) result[head][wk]=(result[head][wk]||0)+100*(ov/7);
+          if(ov>0) result[head][wk]=(result[head][wk]||0)+pct*(ov/7);
         });
       });
     });
@@ -535,16 +559,17 @@ function computeHeadAllocationsWeekly(projects, weeks) {
 function computeHeadAllocationsDaily(projects, days) {
   const result={};
   projects.forEach(proj=>{
-    _projHeads(proj).forEach(head=>{
+    _projHeads(proj).forEach((head,idx)=>{
       if(!result[head]) result[head]={};
       PHASES.forEach(ph=>{
-        const phase=proj.phases[ph.key];
-        if(!phase?.start||!phase?.end) return;
+        const phase=proj.headPhases?.[ph.key];
+        const pct=phase?.pcts?.[idx]||0;
+        if(!phase?.start||!phase?.end||!pct) return;
         const phS=parseSPDate(phase.start), phE=parseSPDate(phase.end);
         if(!phS||!phE) return;
         days.forEach(dk=>{
           const d=parseSPDate(dk);
-          if(d&&d>=phS&&d<=phE) result[head][dk]=(result[head][dk]||0)+100;
+          if(d&&d>=phS&&d<=phE) result[head][dk]=(result[head][dk]||0)+pct;
         });
       });
     });
@@ -846,22 +871,36 @@ async function saveDistFile(token, siteUrl, data) {
 // Merge SP items + distribution file → complete project list
 function mergeProjectsWithDist(spItems, dist) {
   const spProjects = spItems
-    .filter(item=>item.Title!==DIST_MARKER) // exclude hidden dist item
+    .filter(item=>item.Title!==DIST_MARKER)
     .map(item=>{
     const proj = parseSPItem(item);
+    const projHeadNames = _projHeads(proj);
+
+    // Restore analyst per-phase pcts from dist.json
     const saved = dist.distributions?.[String(proj.spId)];
-    if (!saved) return proj;
     const phases={};
     PHASES.forEach(ph=>{
-      const storedPcts = saved[ph.key];
-      const base = proj.phases[ph.key];
-      // Use stored pcts if length matches analyst count, otherwise equal-split fallback
-      phases[ph.key] = {
+      const base       = proj.phases[ph.key];
+      const storedPcts = saved?.[ph.key];
+      phases[ph.key]   = {
         ...base,
-        pcts: storedPcts && storedPcts.length===proj.analysts.length ? storedPcts : base.pcts,
+        pcts: storedPcts&&storedPcts.length===proj.analysts.length ? storedPcts : base.pcts,
       };
     });
-    return {...proj, phases};
+
+    // Restore head per-phase pcts from dist.json (headDistributions)
+    const savedHead = dist.headDistributions?.[String(proj.spId)];
+    const headPhases={};
+    PHASES.forEach(ph=>{
+      const base       = proj.headPhases[ph.key];
+      const storedPcts = savedHead?.[ph.key];
+      headPhases[ph.key] = {
+        ...base,
+        pcts: storedPcts&&storedPcts.length===projHeadNames.length ? storedPcts : base.pcts,
+      };
+    });
+
+    return {...proj, phases, headPhases};
   });
   return [...spProjects, ...(dist.localProjects||[])];
 }
@@ -1102,21 +1141,29 @@ function App() {
         payload[`Analista_${i+1}`] = project.analysts[i]||null;
       }
       PHASES.forEach(ph=>{
-        const phase = project.phases[ph.key]||{};
-        const total = totalPhasePct(phase);
-        payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
-        payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
-        payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+        const phase     = project.phases[ph.key]||{};
+        const headPhase = project.headPhases?.[ph.key]||{};
+        const total     = totalPhasePct(phase);
+        const headTotal = totalPhasePct(headPhase);
+        payload[`Inicio_${ph.key}`]             = phase.start ? fmtDateForSP(phase.start) : null;
+        payload[`Fim_${ph.key}`]                = phase.end   ? fmtDateForSP(phase.end)   : null;
+        payload[`Analista_${ph.key}_PCT`]       = pctToSP(total);
+        payload[`Consultor_Head_${ph.key}_PCT`] = pctToSP(headTotal);
       });
       await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
-      // Update per-analyst distributions in dist file
+      // Update per-analyst + per-head distributions in dist file
       const newDist = {
-        distributions: {...(distData.distributions||{})},
-        localProjects:  [...(distData.localProjects||[])],
+        ...distData,
+        distributions:     {...(distData.distributions||{})},
+        headDistributions: {...(distData.headDistributions||{})},
+        localProjects:     [...(distData.localProjects||[])],
       };
       const distEntry={};
       PHASES.forEach(ph=>{ distEntry[ph.key]=project.phases[ph.key]?.pcts||[]; });
       newDist.distributions[String(project.spId)] = distEntry;
+      const headDistEntry={};
+      PHASES.forEach(ph=>{ headDistEntry[ph.key]=project.headPhases?.[ph.key]?.pcts||[]; });
+      newDist.headDistributions[String(project.spId)] = headDistEntry;
       await saveDistFile(authState.token, SP_SITE_URL, newDist);
       setDistData(newDist);
       setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
