@@ -493,7 +493,9 @@ function TrafficDot({pct,vacation}) {
 }
 
 // ─── Vacation Helpers ─────────────────────────────────────────────────────────
-// Returns {analyst: {col: true}} for all cols overlapping any vacation period
+// Returns {analyst: {col: pct}} where pct is the proportional vacation % for
+// that column period (100 × overlap_days / period_days).
+// Day view: pct = 100 for vacation days (full day), 0 otherwise.
 function buildVacationMap(vacations, cols, granularity) {
   const map={};
   (vacations||[]).forEach(v=>{
@@ -502,20 +504,26 @@ function buildVacationMap(vacations, cols, granularity) {
     const vS=parseSPDate(v.start), vE=parseSPDate(v.end);
     if(!vS||!vE) return;
     cols.forEach(col=>{
-      let hit=false;
+      let pct=0;
       if (granularity==='month') {
-        hit=daysOverlapInMonth(v.start,v.end,col)>0;
+        const [y,m]=col.split('-').map(Number);
+        const dim=new Date(y,m,0).getDate();
+        const ov=daysOverlapInMonth(v.start,v.end,col);
+        if(ov>0) pct=Math.round(100*(ov/dim));
       } else if (granularity==='week') {
         const wS=parseSPDate(col), wE=calAddDays(wS,6);
         const oS=vS>wS?vS:wS, oE=vE<wE?vE:wE;
-        hit=oS<=oE;
+        const ov=Math.max(0,Math.round((oE-oS)/864e5)+1);
+        if(ov>0) pct=Math.round(100*(ov/7));
       } else {
         const d=parseSPDate(col);
-        hit=!!(d&&d>=vS&&d<=vE);
+        if(d&&d>=vS&&d<=vE) pct=100;
       }
-      if(hit) map[v.analyst][col]=true;
+      if(pct>0) map[v.analyst][col]=(map[v.analyst][col]||0)+pct;
     });
   });
+  // Cap at 100 per column
+  Object.values(map).forEach(a=>Object.keys(a).forEach(k=>{a[k]=Math.min(a[k],100);}));
   return map;
 }
 
@@ -1557,32 +1565,37 @@ function DashboardView({analysts,allocations,months,monthRange,setMonthRange,onA
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {analysts.map(analyst=>{
-          const vals = months.map(m=> vacMap[analyst]?.[m] ? 100 : (allocations[analyst]?.[m]||0));
+          const vals = months.map(m=>{
+            const vacPct=vacMap[analyst]?.[m]||0;
+            const allocPct=allocations[analyst]?.[m]||0;
+            return vacPct>0 ? Math.min(100,Math.round(vacPct+allocPct*(1-vacPct/100))) : allocPct;
+          });
           const max  = Math.max(...vals,0);
-          const hasVacation = months.some(m=>vacMap[analyst]?.[m]);
-          const peakIsVacation = hasVacation && vals.every((v,i)=> !vacMap[analyst]?.[months[i]] || v===max);
+          const hasVacation = months.some(m=>(vacMap[analyst]?.[m]||0)>0);
           return (
             <button key={analyst} onClick={()=>onAnalystClick(analyst)}
               className="bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-indigo-300 hover:shadow-md transition group">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold text-slate-800 group-hover:text-indigo-700 truncate">{analyst}</span>
-                <TrafficDot pct={max} vacation={hasVacation&&max===100&&vals.filter(v=>v>0).every(v=>v===100)}/>
+                <TrafficDot pct={max} vacation={hasVacation&&max===100}/>
               </div>
               <p className={`text-2xl font-bold ${hasVacation&&max===100?'text-blue-600':max>100?'text-red-600':max>90?'text-yellow-600':'text-green-600'}`}>{max}%</p>
               <p className="text-xs text-slate-400 mt-0.5">pico no período</p>
               <div className="mt-3 flex gap-0.5">
-                {months.slice(0,12).map(m=>{
-                  const isVac = vacMap[analyst]?.[m];
-                  const v = isVac ? 100 : (allocations[analyst]?.[m]||0);
+                {months.slice(0,12).map((m,mi)=>{
+                  const vacPct=vacMap[analyst]?.[m]||0;
+                  const allocPct=allocations[analyst]?.[m]||0;
+                  const v=vals[mi];
+                  const fullVac=vacPct===100;
                   const [y,mo] = m.split('-').map(Number);
                   const abbr = new Date(y,mo-1,1).toLocaleDateString('pt-BR',{month:'short'}).replace('.','');
-                  const color = isVac?'#3b82f6':v>100?'#ef4444':v>90?'#ca8a04':v>0?'#16a34a':'#cbd5e1';
+                  const color = vacPct>0?'#3b82f6':v>100?'#ef4444':v>90?'#ca8a04':v>0?'#16a34a':'#cbd5e1';
                   return (
                     <div key={m} className="flex-1 flex flex-col items-center" style={{minWidth:0}}>
                       <div className="w-full rounded-sm mb-0.5" style={{height:'5px',backgroundColor:color}}/>
                       <span className="text-slate-400 truncate w-full text-center leading-none" style={{fontSize:'9px'}}>{abbr}</span>
-                      <span className="font-semibold truncate w-full text-center leading-none" style={{fontSize:'8px',color:isVac?'#3b82f6':v>0?color:'transparent'}}>
-                        {isVac?'🏖':v>0?v+'%':''}
+                      <span className="font-semibold truncate w-full text-center leading-none" style={{fontSize:'8px',color:vacPct>0?'#3b82f6':v>0?color:'transparent'}}>
+                        {fullVac?'🏖':vacPct>0?`🏖${v}%`:v>0?v+'%':''}
                       </span>
                     </div>
                   );
@@ -1720,16 +1733,25 @@ function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAna
                   </button>
                 </td>
                 {cols.map(col=>{
-                  const isVac=vacMap[analyst]?.[col];
-                  const v=isVac?100:(allocs[analyst]?.[col]||0);
-                  if (isVac) return (
-                    <td key={col} className="px-0.5 py-1.5 text-center text-xs font-semibold bg-blue-100 text-blue-700 select-none" title="Férias">
-                      🏖
+                  const vacPct=vacMap[analyst]?.[col]||0;
+                  const allocPct=allocs[analyst]?.[col]||0;
+                  // Combine: vacation days block 100%, non-vacation days have normal alloc
+                  // vacPct is already proportional (e.g. 33 = 10/30 days vacation)
+                  // For remaining fraction: allocPct × (1 - vacPct/100)
+                  const combined = vacPct>0
+                    ? Math.min(100, Math.round(vacPct + allocPct*(1-vacPct/100)))
+                    : allocPct;
+                  const fullVac = vacPct===100;
+                  if (vacPct>0) return (
+                    <td key={col}
+                      className="px-0.5 py-1.5 text-center text-xs font-semibold bg-blue-100 text-blue-700 select-none"
+                      title={fullVac?'Férias':`Férias parcial (${vacPct}% do período)`}>
+                      {fullVac?'🏖':`🏖 ${combined}%`}
                     </td>
                   );
                   return (
-                    <td key={col} className={`px-0.5 py-2 text-center text-xs font-semibold ${cellClass(v)}`}>
-                      {v>0?v+'%':''}
+                    <td key={col} className={`px-0.5 py-2 text-center text-xs font-semibold ${cellClass(combined)}`}>
+                      {combined>0?combined+'%':''}
                     </td>
                   );
                 })}
