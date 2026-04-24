@@ -1145,6 +1145,12 @@ function App() {
   const [entityView,       setEntityView]       = useState('analyst'); // 'analyst' | 'head'
   const [spChoices,        setSpChoices]        = useState({});        // campos Choice do SP
 
+  // ── projectsRef: sempre aponta para o projects mais recente ─────────────────
+  // Evita stale closure em saveProject: sem isso, maxIndice sempre seria 0
+  // (o valor de projects no momento do login), gerando indice=1 sempre → duplicate.
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+
   // ── distDataRef: sempre aponta para o distData mais recente ──────────────────
   // Evita race conditions de stale closure: qualquer save que aconteça após outro
   // save (ex: salvar férias e depois salvar projeto) lê o estado mais atual do
@@ -1289,7 +1295,7 @@ function App() {
           await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
           setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
         } else {
-          const maxIndice = projects
+          const maxIndice = projectsRef.current
             .filter(p=>p.source==='sharepoint')
             .map(p=>Number(p.indice)||0)
             .reduce((a,b)=>Math.max(a,b), 0);
