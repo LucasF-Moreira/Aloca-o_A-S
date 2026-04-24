@@ -80,7 +80,7 @@ const HEAD_PCT_COLS_DEFAULT = {
   Etapa_3:         'Consultor_Head_Etapa_3_PCT',
   Etapa_4:         'Consultor_Head_Etapa_4_PCT',
   Etapa_5:         'Consultor_Head_Etapa_5_PCT',
-  Relatorio_Final: 'Consultor_Head_Relatorio_Final_PCT',
+  Relatorio_Final: 'Consultor_Head_Relatorio_Final_P', // StaticName truncado no SP (32 chars max)
 };
 // Resolvido em runtime — começa com os defaults e é atualizado após fetchHeadPctCols
 const HEAD_PCT_COLS = {...HEAD_PCT_COLS_DEFAULT};
@@ -383,11 +383,11 @@ function parseSPItem(item) {
       pcts:  projHeadNames.map(()=>perEach),  // equal split — user can adjust
     };
   });
-  // Populate pulseData — tenta f.k direto, depois o nome resolvido do SP
+  // Populate pulseData — lê pelo StaticName real do SP (override > f.k original)
   const pulseData = {};
   PULSE_FIELDS.forEach(f => {
-    const spKey = _resolveFieldName(f.k);
-    const raw = item[f.k]!==undefined ? item[f.k] : item[spKey];
+    const spKey = _spFieldMap[f.k] && _spFieldMap[f.k]!=='__nonexistent__' ? _spFieldMap[f.k] : f.k;
+    const raw = item[spKey]!==undefined ? item[spKey] : item[f.k];
     pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(raw)||'') : (raw!==undefined&&raw!==null ? String(raw) : '');
   });
   return {
@@ -965,6 +965,34 @@ function mergeProjectsWithDist(spItems, dist) {
 // Tipos SP graváveis via PATCH simples (texto, nota, data, moeda, choice, bool, número)
 const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]);
 
+// Mapeamento explícito: k do código → StaticName real no SP (obtido via console log).
+// null = campo não existe no SP (será silenciosamente ignorado no save).
+const PULSE_FIELD_SP_OVERRIDES = {
+  // Nomes internos completamente diferentes no SP
+  'Semestre_Orcamentario':             'Periodo',
+  'ID_do_Programa_ATS':                'ID_do_Programa_Globe',
+  'Nome_do_Programa_ATS':              'Nome_do_Programa_Globe',
+  'Assessments_Utilizados':            'Assessments',
+  'Qtdd_Sala_Dia_Etapa1':              'Qtdd_Sala_Dia',
+  'Qtdd_Sala_Dia_Etapa2':              'Qtdd_Sala_Etapa2',
+  'Qtdd_Sala_Dia_Etapa3':              'Qttd_Salas_Etapa3',
+  'Qtdd_Sala_Dia_Etapa4':              'Qtdd_Sala_Etapa4',
+  'Qtdd_Sala_Dia_Etapa5':              'Qtdd_Sala_Etapa5',
+  'Ha_quanto_tempo_existe_o_programa': 'H_x00e1_quantotempoexisteoprogra',
+  'Empresa_arcou_com_custos':          'Aempresaarcoucomoscustosdoscandi',
+  'Politica_de_custos':                'Qualfoiapol_x00ed_ticadecustos_x',
+  'Auxilio_mudanca':                   'Aux_x00ed_liomudan_x00e7_a_x003f',
+  'Trilha_de_Desenvolvimento':         'TrilhadeDesenvolvimento_x0028_Jo',
+  'Processo_para_nicho':               'Esteprocesso_x00e9_paraumnichoes',
+  'Meta_etnico_racial':                'Tevemetaparap_x00fa_blico_x00e9_',
+  'Acoes_para_metas':                  'A_x00e7__x00f5_esqueajudaramatra',
+  'Parceiro_diversidade':              'Tevealgumparceiroparaatrairdiver',
+  'Flexibilizacao_criterios_internos': 'Flexibiliza_x00e7__x00e3_odecrit',
+  'Criterios_Flexibilizados_Internos': 'Crit_x00e9_rios_Flexibilizados_I',
+  // Aguardando nomes SP dos campos abaixo — existem na lista mas não apareceram no log
+  // (será resolvido após novo diagnóstico com log completo)
+};
+
 const _spFieldMap      = {}; // { codigoKey → StaticName real no SP }
 const _spValidFields   = new Set(); // StaticNames reais e graváveis
 const _spRequiredFields= new Set(); // StaticNames de campos Required no SP
@@ -1011,15 +1039,27 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
-    // Log diagnóstico — abre DevTools (F12) → Console para ver os nomes reais do SP
-    const unresolvedKeys = new Set(PULSE_FIELDS.map(f=>f.k));
-    writable.forEach(f=>{ unresolvedKeys.delete(f.InternalName); unresolvedKeys.delete(f.StaticName); });
-    console.log('📋 SP writable fields (InternalName | StaticName | Title):');
-    writable.forEach(f=>console.log(`  ${f.InternalName} | ${f.StaticName} | ${f.Title}`));
+    // Log diagnóstico completo — abre DevTools (F12 → Console)
+    // Mostra TODOS os campos do SP com tipo e flag ReadOnly para achar os que faltam
+    console.log('📋 TODOS os campos SP (Tipo | RO | InternalName | StaticName | Title):');
+    allFields.forEach(f=>console.log(
+      `  [${f.FieldTypeKind}${f.ReadOnlyField?'|RO':''}] ${f.InternalName} | ${f.StaticName} | ${f.Title}`
+    ));
 
-    // Match em 3 passos — sem fuzzy/parcial para evitar falsos positivos
+    // Passo 0: aplicar overrides explícitos primeiro (nomes confirmados via console log)
+    Object.entries(PULSE_FIELD_SP_OVERRIDES).forEach(([k,spName])=>{
+      if (spName===null) {
+        _spFieldMap[k]='__nonexistent__'; // não existe no SP — skip silencioso
+      } else {
+        _spFieldMap[k]=spName;
+        _spValidFields.add(spName);
+      }
+    });
+
+    // Match em 3 passos para campos não cobertos pelos overrides
     const normK = f => _normMatch(f.k);
     PULSE_FIELDS.forEach(f=>{
+      if (_spFieldMap[f.k]) return; // já resolvido pelo override
       const nk = normK(f);
 
       // 1. Exact string match (InternalName ou StaticName)
@@ -1039,7 +1079,7 @@ async function fetchSPChoices(token, siteUrl, listName) {
       if (match) {
         _spFieldMap[f.k] = match.StaticName||match.InternalName;
         _spValidFields.add(_spFieldMap[f.k]);
-      } else {
+      } else if (_spFieldMap[f.k]!=='__nonexistent__') {
         _spUnresolved.push({k:f.k, l:f.l, s:f.s});
       }
 
@@ -1320,9 +1360,11 @@ function App() {
       //    mapearmos os nomes corretos de todos os campos unresolved
       if (project.pulseData) {
         PULSE_FIELDS.forEach(f=>{
-          // Pula se não houver match exato confirmado no SP
-          if (!_spFieldMap[f.k] && _spValidFields.size>0) return;
-          const spKey = _spFieldMap[f.k]||f.k;
+          const mapped = _spFieldMap[f.k];
+          // Pula campos não existentes no SP ou não resolvidos
+          if (mapped==='__nonexistent__') return;
+          if (!mapped && _spValidFields.size>0) return;
+          const spKey = mapped||f.k;
           const v = project.pulseData[f.k];
           const isEmpty = v===''||v===null||v===undefined;
           if (isEmpty) return; // nunca enviar null — omite e SP mantém valor atual
