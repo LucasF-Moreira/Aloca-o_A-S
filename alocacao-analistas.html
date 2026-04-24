@@ -962,31 +962,33 @@ function mergeProjectsWithDist(spItems, dist) {
 }
 
 // ─── SP Field Name Resolution ──────────────────────────────────────────────────
-// Tipos de campo SP considerados "simples" — podem ser escritos via PATCH com valor string/number/null.
-// Tipos complexos (Lookup=7, User=20, Computed=12, Taxonomy=999, etc.) são excluídos do PATCH.
-const SP_SIMPLE_TYPES = new Set([1,2,3,4,5,6,8,9,10,15,16,17,19,20,21]);
-// FieldTypeKind: 1=Text, 2=Note, 3=DateTime, 4=Counter, 5=Currency, 6=Choice,
-//               8=Boolean, 9=Number, 10=URLwImage, 15=MultiChoice, 16=Calculated(skip),
-//               17=File(skip), 19=Attachments(skip), 20=User(skip lol - included to show intent)
-// Na prática usaremos apenas os realmente seguros:
-const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]); // Text,Note,DateTime,Currency,Choice,Bool,Number,MultiChoice
+// Tipos SP graváveis via PATCH simples (texto, nota, data, moeda, choice, bool, número)
+const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]);
 
-const _spFieldMap    = {}; // { codigoKey → staticNameReal }
-const _spValidFields = new Set(); // StaticNames reais e graváveis
+const _spFieldMap      = {}; // { codigoKey → StaticName real no SP }
+const _spValidFields   = new Set(); // StaticNames reais e graváveis
+const _spUnresolved    = []; // PULSE_FIELDS sem correspondência confirmada no SP
+
+// Normaliza string para matching: lowercase, sem acentos, só alfanumérico
+function _normMatch(s) {
+  return (s||'').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]/g,'');
+}
 
 async function fetchSPChoices(token, siteUrl, listName) {
+  _spUnresolved.length = 0; // reset
   try {
     const base = _spListBase(siteUrl, listName);
     const json = await spFetch(token,
-      `${base}/fields?$select=InternalName,StaticName,Choices,FieldTypeKind,ReadOnlyField&$top=500`
+      `${base}/fields?$select=InternalName,StaticName,Title,Choices,FieldTypeKind,ReadOnlyField&$top=500`
     );
     const allFields = json.value||[];
     const choiceMap = {};
 
-    // Registra apenas campos graváveis e de tipo simples
-    allFields.forEach(f=>{
-      if (f.ReadOnlyField) return; // campos somente-leitura nunca entram no PATCH
-      if (!SP_WRITABLE_TYPES.has(f.FieldTypeKind)) return; // tipos complexos excluídos
+    // Separa campos graváveis
+    const writable = allFields.filter(f=>!f.ReadOnlyField && SP_WRITABLE_TYPES.has(f.FieldTypeKind));
+    writable.forEach(f=>{
       if (f.InternalName) _spValidFields.add(f.InternalName);
       if (f.StaticName)   _spValidFields.add(f.StaticName);
       if (f.FieldTypeKind===6||f.FieldTypeKind===15) {
@@ -998,25 +1000,33 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
-    // Para cada PULSE_FIELD, mapeia f.k → StaticName real (somente se gravável)
     PULSE_FIELDS.forEach(f=>{
-      if (_spValidFields.has(f.k)) {
-        _spFieldMap[f.k]=f.k; // match direto
-      } else {
-        // Busca match exato por InternalName primeiro, depois por StaticName
-        const exact = allFields.find(sf=>
-          !sf.ReadOnlyField && SP_WRITABLE_TYPES.has(sf.FieldTypeKind) &&
-          (sf.InternalName===f.k || sf.StaticName===f.k)
-        );
-        if (exact) {
-          _spFieldMap[f.k]=exact.StaticName||exact.InternalName;
-          _spValidFields.add(_spFieldMap[f.k]);
+      // 1. Exact match no InternalName ou StaticName
+      const exactKey = writable.find(sf=>sf.InternalName===f.k||sf.StaticName===f.k);
+      if (exactKey) { _spFieldMap[f.k]=exactKey.StaticName||exactKey.InternalName; }
+      else {
+        // 2. Match pelo label (f.l) contra Title do campo SP — mais confiável que nome interno
+        const normL = _normMatch(f.l);
+        const byLabel = writable.find(sf=>_normMatch(sf.Title)===normL);
+        if (byLabel) { _spFieldMap[f.k]=byLabel.StaticName||byLabel.InternalName; _spValidFields.add(_spFieldMap[f.k]); }
+        else {
+          // 3. Match parcial pelo label
+          const byPartial = writable.find(sf=>{
+            const t=_normMatch(sf.Title);
+            return t.length>3 && (t.includes(normL)||normL.includes(t));
+          });
+          if (byPartial) { _spFieldMap[f.k]=byPartial.StaticName||byPartial.InternalName; _spValidFields.add(_spFieldMap[f.k]); }
+          else {
+            // Sem correspondência confirmada — registra para avisar o usuário
+            _spUnresolved.push({k:f.k, l:f.l, s:f.s});
+          }
         }
-        // Sem match → campo não existe ou não é gravável, será ignorado no save
       }
+      // Atualiza opções do select com as do SP
       if (f.t==='select') {
         const resolved=_spFieldMap[f.k]||f.k;
         if (choiceMap[resolved]) f.o=choiceMap[resolved];
+        else if (choiceMap[f.k]) f.o=choiceMap[f.k];
       }
     });
 
@@ -1024,7 +1034,15 @@ async function fetchSPChoices(token, siteUrl, listName) {
   } catch { return {}; }
 }
 
+// Retorna o StaticName real para usar no PATCH — se não houver mapeamento, usa f.k original
 function _resolveFieldName(k) { return _spFieldMap[k]||k; }
+
+// Retorna true se o campo é seguro para incluir no PATCH
+function _isSpWritable(k) {
+  if (_spValidFields.size===0) return true; // fallback: inclui tudo se não carregou
+  const resolved = _resolveFieldName(k);
+  return _spValidFields.has(resolved) || _spValidFields.has(k);
+}
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
@@ -1268,15 +1286,18 @@ function App() {
         Head_2:             project.head2||null,
         Head_3:             project.head3||null,
       };
-      // Pulse extra fields — usa _resolveFieldName para corrigir nomes errados em tempo real
+      // Pulse extra fields — usa nome SP real e exclui campos não graváveis
       if (project.pulseData) {
+        const skipped = [];
         PULSE_FIELDS.forEach(f=>{
-          const spKey = _resolveFieldName(f.k); // nome real no SP (pode diferir de f.k)
-          // Pula apenas se confirmadamente inexistente no SP (e o mapeamento já foi carregado)
-          if (_spValidFields.size>0 && !_spValidFields.has(spKey)) return;
+          const spKey = _resolveFieldName(f.k);
+          if (!_isSpWritable(f.k)) { skipped.push(f.l); return; }
           const v = project.pulseData[f.k];
           payload[spKey] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (v||null);
         });
+        if (skipped.length>0) {
+          console.warn('⚠️ Campos não encontrados no SP (não salvos):', skipped);
+        }
       }
       for (let i=0; i<MAX_ANALYSTS; i++) {
         payload[`Analista_${i+1}`] = project.analysts[i]||null;
@@ -1311,12 +1332,17 @@ function App() {
       await saveDistFile(authState.token, SP_SITE_URL, newDist);
       setDistData(newDist);
       setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
-      setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
+      if (_spUnresolved.length>0) {
+        const names = _spUnresolved.map(u=>u.l).join(', ');
+        setSaveMsg({type:'warn', text:`✓ Salvo — mas ${_spUnresolved.length} campo(s) não encontrado(s) no SP e não foram gravados: ${names}`});
+      } else {
+        setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
+      }
     } catch(e) {
       setSaveMsg({type:'error', text:'Erro ao salvar: '+e.message});
     } finally {
       setSaving(false);
-      setTimeout(()=>setSaveMsg(null), 5000);
+      setTimeout(()=>setSaveMsg(null), 8000);
     }
   },[authState]);  // distData removido — lido via distDataRef.current
 
