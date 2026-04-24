@@ -967,6 +967,7 @@ const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]);
 
 const _spFieldMap      = {}; // { codigoKey → StaticName real no SP }
 const _spValidFields   = new Set(); // StaticNames reais e graváveis
+const _spRequiredFields= new Set(); // StaticNames de campos Required no SP
 const _spUnresolved    = []; // PULSE_FIELDS sem correspondência confirmada no SP
 
 // Normaliza string para matching: lowercase, sem acentos, só alfanumérico
@@ -981,7 +982,7 @@ async function fetchSPChoices(token, siteUrl, listName) {
   try {
     const base = _spListBase(siteUrl, listName);
     const json = await spFetch(token,
-      `${base}/fields?$select=InternalName,StaticName,Title,Choices,FieldTypeKind,ReadOnlyField&$top=500`
+      `${base}/fields?$select=InternalName,StaticName,Title,Choices,FieldTypeKind,ReadOnlyField,Required&$top=500`
     );
     const allFields = json.value||[];
     const choiceMap = {};
@@ -991,6 +992,11 @@ async function fetchSPChoices(token, siteUrl, listName) {
     writable.forEach(f=>{
       if (f.InternalName) _spValidFields.add(f.InternalName);
       if (f.StaticName)   _spValidFields.add(f.StaticName);
+      // Registra campos obrigatórios — null será omitido para esses
+      if (f.Required) {
+        if (f.InternalName) _spRequiredFields.add(f.InternalName);
+        if (f.StaticName)   _spRequiredFields.add(f.StaticName);
+      }
       if (f.FieldTypeKind===6||f.FieldTypeKind===15) {
         const choices=(f.Choices?.results||f.Choices||[]).filter(c=>c&&c.trim());
         if (choices.length) {
@@ -1286,18 +1292,20 @@ function App() {
         Head_2:             project.head2||null,
         Head_3:             project.head3||null,
       };
-      // Pulse extra fields — usa nome SP real e exclui campos não graváveis
+      // Pulse extra fields — usa nome SP real, respeita Required e exclui tipos não graváveis
       if (project.pulseData) {
         const skipped = [];
         PULSE_FIELDS.forEach(f=>{
-          const spKey = _resolveFieldName(f.k);
           if (!_isSpWritable(f.k)) { skipped.push(f.l); return; }
+          const spKey = _resolveFieldName(f.k);
           const v = project.pulseData[f.k];
-          payload[spKey] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (v||null);
+          const isEmpty = v===''||v===null||v===undefined;
+          // Campos Required com valor vazio: omitir do payload (SP mantém valor existente)
+          // Campos opcionais com valor vazio: enviar null para permitir limpeza
+          if (isEmpty && _spRequiredFields.has(spKey)) return;
+          payload[spKey] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (isEmpty ? null : v);
         });
-        if (skipped.length>0) {
-          console.warn('⚠️ Campos não encontrados no SP (não salvos):', skipped);
-        }
+        if (skipped.length>0) console.warn('⚠️ Campos sem correspondência no SP:', skipped);
       }
       for (let i=0; i<MAX_ANALYSTS; i++) {
         payload[`Analista_${i+1}`] = project.analysts[i]||null;
