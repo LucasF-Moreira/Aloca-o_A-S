@@ -383,10 +383,11 @@ function parseSPItem(item) {
       pcts:  projHeadNames.map(()=>perEach),  // equal split — user can adjust
     };
   });
-  // Populate pulseData from PULSE_FIELDS — date fields converted to input format
+  // Populate pulseData — tenta f.k direto, depois o nome resolvido do SP
   const pulseData = {};
   PULSE_FIELDS.forEach(f => {
-    const raw = item[f.k];
+    const spKey = _resolveFieldName(f.k);
+    const raw = item[f.k]!==undefined ? item[f.k] : item[spKey];
     pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(raw)||'') : (raw!==undefined&&raw!==null ? String(raw) : '');
   });
   return {
@@ -960,30 +961,70 @@ function mergeProjectsWithDist(spItems, dist) {
   return [...spProjects, ...(dist.localProjects||[])];
 }
 
-// ─── SP Choice Fields (fetched at runtime, updates PULSE_FIELDS.o in place) ───
-// Retorna mapa { InternalName → ['Opção1', 'Opção2', ...] } para todos os campos
-// do tipo Choice (FieldTypeKind 6) e MultiChoice (15) da lista.
+// ─── SP Field Name Resolution ──────────────────────────────────────────────────
+// _spFieldMap: mapa de nome-no-código → StaticName real do SP.
+// Preenchido por fetchSPChoices. Usado em savePulse para traduzir nomes errados.
+const _spFieldMap = {};   // { codigoKey: staticNameReal }
+const _spValidFields = new Set(); // todos os StaticNames reais (para verificação rápida)
+
+// Tenta encontrar o StaticName real para um nome de campo que não existe no SP.
+// Estratégia: normaliza ambos (lowercase, sem _ e sem dígitos) e compara.
+function _normField(s) { return s.toLowerCase().replace(/[_\s]/g,''); }
+
 async function fetchSPChoices(token, siteUrl, listName) {
   try {
     const base = _spListBase(siteUrl, listName);
     const json = await spFetch(token,
       `${base}/fields?$select=InternalName,StaticName,Choices,FieldTypeKind&$top=500`
     );
-    const map = {};
-    (json.value||[]).forEach(f=>{
-      if (f.FieldTypeKind!==6 && f.FieldTypeKind!==15) return;
-      const choices = (f.Choices?.results || f.Choices || []).filter(c=>c&&c.trim());
-      if (!choices.length) return;
-      if (f.InternalName) map[f.InternalName] = choices;
-      if (f.StaticName && f.StaticName!==f.InternalName) map[f.StaticName] = choices;
+    const allFields = json.value||[];
+    const choiceMap = {};
+
+    allFields.forEach(f=>{
+      if (f.InternalName) _spValidFields.add(f.InternalName);
+      if (f.StaticName)   _spValidFields.add(f.StaticName);
+      // Choice options
+      if (f.FieldTypeKind===6||f.FieldTypeKind===15) {
+        const choices=(f.Choices?.results||f.Choices||[]).filter(c=>c&&c.trim());
+        if (choices.length) {
+          if (f.InternalName) choiceMap[f.InternalName]=choices;
+          if (f.StaticName&&f.StaticName!==f.InternalName) choiceMap[f.StaticName]=choices;
+        }
+      }
     });
-    // Atualiza PULSE_FIELDS.o em place — renderPulseField já usa f.o, sem precisar de prop extra
+
+    // Para cada PULSE_FIELD cujo k não existe no SP, tenta achar o campo real
+    // por similaridade de nome (normalizado).
     PULSE_FIELDS.forEach(f=>{
-      if (f.t==='select' && map[f.k]) f.o = map[f.k];
+      if (_spValidFields.has(f.k)) {
+        _spFieldMap[f.k]=f.k; // já existe — mapeamento direto
+      } else {
+        // Busca campo SP cujo nome normalizado contenha o nome normalizado do campo
+        const norm=_normField(f.k);
+        const match=allFields.find(sf=>{
+          const sn=_normField(sf.StaticName||'');
+          const tn=_normField(sf.InternalName||'');
+          return sn===norm||tn===norm||sn.includes(norm)||norm.includes(sn);
+        });
+        if (match) {
+          _spFieldMap[f.k]=match.StaticName||match.InternalName;
+          _spValidFields.add(_spFieldMap[f.k]); // registra o nome real como válido
+        }
+        // Se não encontrar, _spFieldMap[f.k] fica undefined → campo realmente não existe no SP
+      }
+      // Atualiza opções de select com as do SP
+      if (f.t==='select') {
+        const resolved=_spFieldMap[f.k]||f.k;
+        if (choiceMap[resolved]) f.o=choiceMap[resolved];
+      }
     });
-    return map; // retorna mapa completo para uso em outros selects (Status_Programa, etc.)
+
+    return choiceMap;
   } catch { return {}; }
 }
+
+// Resolve o nome real de um campo no SP (ou retorna o original se já for válido).
+function _resolveFieldName(k) { return _spFieldMap[k]||k; }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
@@ -1227,11 +1268,14 @@ function App() {
         Head_2:             project.head2||null,
         Head_3:             project.head3||null,
       };
-      // Pulse extra fields — date fields converted back to SP ISO format
+      // Pulse extra fields — usa _resolveFieldName para corrigir nomes errados em tempo real
       if (project.pulseData) {
         PULSE_FIELDS.forEach(f=>{
+          const spKey = _resolveFieldName(f.k); // nome real no SP (pode diferir de f.k)
+          // Pula apenas se confirmadamente inexistente no SP (e o mapeamento já foi carregado)
+          if (_spValidFields.size>0 && !_spValidFields.has(spKey)) return;
           const v = project.pulseData[f.k];
-          payload[f.k] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (v||null);
+          payload[spKey] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (v||null);
         });
       }
       for (let i=0; i<MAX_ANALYSTS; i++) {
