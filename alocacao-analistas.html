@@ -960,6 +960,31 @@ function mergeProjectsWithDist(spItems, dist) {
   return [...spProjects, ...(dist.localProjects||[])];
 }
 
+// ─── SP Choice Fields (fetched at runtime, updates PULSE_FIELDS.o in place) ───
+// Retorna mapa { InternalName → ['Opção1', 'Opção2', ...] } para todos os campos
+// do tipo Choice (FieldTypeKind 6) e MultiChoice (15) da lista.
+async function fetchSPChoices(token, siteUrl, listName) {
+  try {
+    const base = _spListBase(siteUrl, listName);
+    const json = await spFetch(token,
+      `${base}/fields?$select=InternalName,StaticName,Choices,FieldTypeKind&$top=500`
+    );
+    const map = {};
+    (json.value||[]).forEach(f=>{
+      if (f.FieldTypeKind!==6 && f.FieldTypeKind!==15) return;
+      const choices = (f.Choices?.results || f.Choices || []).filter(c=>c&&c.trim());
+      if (!choices.length) return;
+      if (f.InternalName) map[f.InternalName] = choices;
+      if (f.StaticName && f.StaticName!==f.InternalName) map[f.StaticName] = choices;
+    });
+    // Atualiza PULSE_FIELDS.o em place — renderPulseField já usa f.o, sem precisar de prop extra
+    PULSE_FIELDS.forEach(f=>{
+      if (f.t==='select' && map[f.k]) f.o = map[f.k];
+    });
+    return map; // retorna mapa completo para uso em outros selects (Status_Programa, etc.)
+  } catch { return {}; }
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
   const local = loadLocal();
@@ -989,6 +1014,7 @@ function App() {
   const [vacations,        setVacations]        = useState([]);
   const [headMembers,      setHeadMembers]      = useState([]);
   const [entityView,       setEntityView]       = useState('analyst'); // 'analyst' | 'head'
+  const [spChoices,        setSpChoices]        = useState({});        // campos Choice do SP
 
   // ── distDataRef: sempre aponta para o distData mais recente ──────────────────
   // Evita race conditions de stale closure: qualquer save que aconteça após outro
@@ -1027,13 +1053,15 @@ function App() {
   const loadAll = useCallback(async(token)=>{
     setLoading(true); setError('');
     try {
-      const [spItems, dist, team, hteam] = await Promise.all([
+      const [spItems, dist, team, hteam, choices] = await Promise.all([
         fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
         fetchDistFile(token, SP_SITE_URL),
         fetchTeamMembers(token, SP_SITE_URL),
         fetchHeadMembers(token, SP_SITE_URL),
-        fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME), // resolve StaticNames reais
+        fetchSPChoices(token, SP_SITE_URL, SP_LIST_NAME), // campos Choice do SP
+        fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME),
       ]);
+      setSpChoices(choices||{});
       setDistData(dist);
       setTeamMembers(team);
       setHeadMembers(hteam);
@@ -1352,6 +1380,7 @@ function App() {
           onSave={savePulse}
           saving={saving}
           token={authState.token}
+          spChoices={spChoices}
         />
       </div>
     );
@@ -1434,7 +1463,8 @@ function App() {
           saving={saving}
           isSpConnected={authState.isAuth}
           clientId={clientId}
-          tenantId={tenantId}/>
+          tenantId={tenantId}
+          spChoices={spChoices}/>
       )}
       {showAnalystDetail&&(
         <AnalystDetailModal analyst={showAnalystDetail} allProjects={filteredProjects}
@@ -2255,7 +2285,7 @@ function MoskitPickerModal({clientId, tenantId, onSelect, onClose}) {
 }
 
 // ─── Project Modal (redesigned — per-analyst % per phase) ─────────────────────
-function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, isSpConnected, clientId, tenantId}) {
+function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, isSpConnected, clientId, tenantId, spChoices}) {
   const isExistingSP = !!(project?.spId);
   const isExistingLocal = project && !project?.spId;
   const [syncToSP, setSyncToSP] = useState(isExistingSP ? true : (isSpConnected && !isExistingLocal));
@@ -2412,10 +2442,9 @@ function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, 
                 <select value={status} onChange={e=>setStatus(e.target.value)}
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
                   <option value="">—</option>
-                  <option value="Em andamento">Em andamento</option>
-                  <option value="Concluído">Concluído</option>
-                  <option value="Cancelado">Cancelado</option>
-                  <option value="Planejamento">Planejamento</option>
+                  {(spChoices?.Status_Programa||['Em andamento','Concluído','Cancelado','Planejamento']).map(o=>(
+                    <option key={o} value={o}>{o}</option>
+                  ))}
                 </select>
               </div>
               <div className="sm:col-span-2">
@@ -3006,7 +3035,7 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
 }
 
 // ─── Pulse View ───────────────────────────────────────────────────────────────
-function PulseView({projects, ciclos, allAnalysts, onSave, saving, token}) {
+function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoices}) {
   const [filters,     setFilters]     = useState({ciclo:'', analista:'', head:'', ka:'', client:'', nome:''});
   const [editProject, setEditProject] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -3163,6 +3192,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token}) {
           onSave={handleSave}
           onClose={()=>setEditProject(null)}
           saving={saving}
+          spChoices={spChoices}
         />
       )}
     </div>
@@ -3170,7 +3200,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token}) {
 }
 
 // ─── Pulse Edit Modal (all List_Pulse fields, collapsible sections) ───────────
-function PulseEditModal({project, allAnalysts, onSave, onClose, saving}) {
+function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoices}) {
   // Core fields
   const [title,    setTitle]    = useState(project?.title||'');
   const [client,   setClient]   = useState(project?.client||'');
@@ -3323,8 +3353,9 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving}) {
                   <label className="block text-xs font-medium text-slate-600 mb-1">Status do Programa</label>
                   <select value={status} onChange={e=>setStatus(e.target.value)} className={cls}>
                     <option value="">—</option>
-                    <option>Em andamento</option><option>Concluído</option>
-                    <option>Cancelado</option><option>Planejamento</option>
+                    {(spChoices?.Status_Programa||['Em andamento','Concluído','Cancelado','Planejamento']).map(o=>(
+                      <option key={o} value={o}>{o}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
