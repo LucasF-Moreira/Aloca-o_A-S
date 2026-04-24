@@ -962,28 +962,33 @@ function mergeProjectsWithDist(spItems, dist) {
 }
 
 // ─── SP Field Name Resolution ──────────────────────────────────────────────────
-// _spFieldMap: mapa de nome-no-código → StaticName real do SP.
-// Preenchido por fetchSPChoices. Usado em savePulse para traduzir nomes errados.
-const _spFieldMap = {};   // { codigoKey: staticNameReal }
-const _spValidFields = new Set(); // todos os StaticNames reais (para verificação rápida)
+// Tipos de campo SP considerados "simples" — podem ser escritos via PATCH com valor string/number/null.
+// Tipos complexos (Lookup=7, User=20, Computed=12, Taxonomy=999, etc.) são excluídos do PATCH.
+const SP_SIMPLE_TYPES = new Set([1,2,3,4,5,6,8,9,10,15,16,17,19,20,21]);
+// FieldTypeKind: 1=Text, 2=Note, 3=DateTime, 4=Counter, 5=Currency, 6=Choice,
+//               8=Boolean, 9=Number, 10=URLwImage, 15=MultiChoice, 16=Calculated(skip),
+//               17=File(skip), 19=Attachments(skip), 20=User(skip lol - included to show intent)
+// Na prática usaremos apenas os realmente seguros:
+const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]); // Text,Note,DateTime,Currency,Choice,Bool,Number,MultiChoice
 
-// Tenta encontrar o StaticName real para um nome de campo que não existe no SP.
-// Estratégia: normaliza ambos (lowercase, sem _ e sem dígitos) e compara.
-function _normField(s) { return s.toLowerCase().replace(/[_\s]/g,''); }
+const _spFieldMap    = {}; // { codigoKey → staticNameReal }
+const _spValidFields = new Set(); // StaticNames reais e graváveis
 
 async function fetchSPChoices(token, siteUrl, listName) {
   try {
     const base = _spListBase(siteUrl, listName);
     const json = await spFetch(token,
-      `${base}/fields?$select=InternalName,StaticName,Choices,FieldTypeKind&$top=500`
+      `${base}/fields?$select=InternalName,StaticName,Choices,FieldTypeKind,ReadOnlyField&$top=500`
     );
     const allFields = json.value||[];
     const choiceMap = {};
 
+    // Registra apenas campos graváveis e de tipo simples
     allFields.forEach(f=>{
+      if (f.ReadOnlyField) return; // campos somente-leitura nunca entram no PATCH
+      if (!SP_WRITABLE_TYPES.has(f.FieldTypeKind)) return; // tipos complexos excluídos
       if (f.InternalName) _spValidFields.add(f.InternalName);
       if (f.StaticName)   _spValidFields.add(f.StaticName);
-      // Choice options
       if (f.FieldTypeKind===6||f.FieldTypeKind===15) {
         const choices=(f.Choices?.results||f.Choices||[]).filter(c=>c&&c.trim());
         if (choices.length) {
@@ -993,26 +998,22 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
-    // Para cada PULSE_FIELD cujo k não existe no SP, tenta achar o campo real
-    // por similaridade de nome (normalizado).
+    // Para cada PULSE_FIELD, mapeia f.k → StaticName real (somente se gravável)
     PULSE_FIELDS.forEach(f=>{
       if (_spValidFields.has(f.k)) {
-        _spFieldMap[f.k]=f.k; // já existe — mapeamento direto
+        _spFieldMap[f.k]=f.k; // match direto
       } else {
-        // Busca campo SP cujo nome normalizado contenha o nome normalizado do campo
-        const norm=_normField(f.k);
-        const match=allFields.find(sf=>{
-          const sn=_normField(sf.StaticName||'');
-          const tn=_normField(sf.InternalName||'');
-          return sn===norm||tn===norm||sn.includes(norm)||norm.includes(sn);
-        });
-        if (match) {
-          _spFieldMap[f.k]=match.StaticName||match.InternalName;
-          _spValidFields.add(_spFieldMap[f.k]); // registra o nome real como válido
+        // Busca match exato por InternalName primeiro, depois por StaticName
+        const exact = allFields.find(sf=>
+          !sf.ReadOnlyField && SP_WRITABLE_TYPES.has(sf.FieldTypeKind) &&
+          (sf.InternalName===f.k || sf.StaticName===f.k)
+        );
+        if (exact) {
+          _spFieldMap[f.k]=exact.StaticName||exact.InternalName;
+          _spValidFields.add(_spFieldMap[f.k]);
         }
-        // Se não encontrar, _spFieldMap[f.k] fica undefined → campo realmente não existe no SP
+        // Sem match → campo não existe ou não é gravável, será ignorado no save
       }
-      // Atualiza opções de select com as do SP
       if (f.t==='select') {
         const resolved=_spFieldMap[f.k]||f.k;
         if (choiceMap[resolved]) f.o=choiceMap[resolved];
@@ -1023,7 +1024,6 @@ async function fetchSPChoices(token, siteUrl, listName) {
   } catch { return {}; }
 }
 
-// Resolve o nome real de um campo no SP (ou retorna o original se já for válido).
 function _resolveFieldName(k) { return _spFieldMap[k]||k; }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
