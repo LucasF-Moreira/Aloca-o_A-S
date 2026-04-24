@@ -412,6 +412,10 @@ function parseSPItem(item) {
 // ─── Build SP PATCH/POST payload from internal project ────────────────────────
 function buildSPPayload(project) {
   const payload = {};
+  if (project.title  !== undefined) payload['Nome_Programa']   = project.title||null;
+  if (project.title  !== undefined) payload['Title']           = project.title||null;
+  if (project.client !== undefined) payload['Cliente']         = project.client||null;
+  if (project.status !== undefined) payload['Status_Programa'] = project.status||null;
   if (project.ciclo  !== undefined) payload['Ciclo_Orcamentario'] = project.ciclo||null;
   if (project.ka     !== undefined) payload['KA']     = project.ka||null;
   if (project.head1  !== undefined) payload['Head_1'] = project.head1||null;
