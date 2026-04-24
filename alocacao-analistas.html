@@ -970,6 +970,13 @@ function App() {
   const [headMembers,      setHeadMembers]      = useState([]);
   const [entityView,       setEntityView]       = useState('analyst'); // 'analyst' | 'head'
 
+  // ── distDataRef: sempre aponta para o distData mais recente ──────────────────
+  // Evita race conditions de stale closure: qualquer save que aconteça após outro
+  // save (ex: salvar férias e depois salvar projeto) lê o estado mais atual do
+  // dist.json em vez do valor capturado no momento em que o callback foi criado.
+  const distDataRef = useRef(distData);
+  distDataRef.current = distData; // atualiza a cada render, antes de qualquer callback
+
   // Only persist config locally when it wasn't baked into APP_CONFIG
   useEffect(()=>{ if (!APP_CONFIG.clientId) saveLocal({clientId,tenantId}); },[clientId,tenantId]);
 
@@ -1033,19 +1040,23 @@ function App() {
   },[]);
 
   // ── Save extra allocations / vacations to the shared dist.json in SharePoint ──
+  // Usa distDataRef.current (sempre atualizado) para evitar sobrescrever dados
+  // salvos por outro callback antes de um re-render completar.
   const saveExtraAllocs = useCallback(async(newExtras)=>{
+    const newDist = {...distDataRef.current, extraAllocations: newExtras};
+    distDataRef.current = newDist;          // atualiza ref imediatamente
     setExtraAllocations(newExtras);
-    const newDist = {...distData, extraAllocations: newExtras};
     setDistData(newDist);
     await saveDistFile(authState.token, SP_SITE_URL, newDist);
-  },[authState.token, distData]);
+  },[authState.token]);
 
   const saveVacations = useCallback(async(newVacs)=>{
+    const newDist = {...distDataRef.current, vacations: newVacs};
+    distDataRef.current = newDist;          // atualiza ref imediatamente
     setVacations(newVacs);
-    const newDist = {...distData, vacations: newVacs};
     setDistData(newDist);
     await saveDistFile(authState.token, SP_SITE_URL, newDist);
-  },[authState.token, distData]);
+  },[authState.token]);
 
   const signInAndFetch = useCallback(async()=>{
     if (!clientId) { setError('⚙️ Client ID não configurado. Edite APP_CONFIG no início do arquivo.'); return; }
@@ -1087,10 +1098,11 @@ function App() {
 
     setSaving(true); setSaveMsg(null);
     try {
-      // Work on a mutable copy of distData
+      // Usa distDataRef.current para preservar férias/extras salvos anteriormente
       const newDist = {
-        distributions: {...(distData.distributions||{})},
-        localProjects:  [...(distData.localProjects||[])],
+        ...distDataRef.current,
+        distributions: {...(distDataRef.current.distributions||{})},
+        localProjects:  [...(distDataRef.current.localProjects||[])],
       };
 
       if (project.source==='sharepoint') {
@@ -1139,6 +1151,7 @@ function App() {
       }
 
       // Write updated dist file to SharePoint
+      distDataRef.current = newDist;
       await saveDistFile(authState.token, SP_SITE_URL, newDist);
       setDistData(newDist);
 
@@ -1149,7 +1162,7 @@ function App() {
       setShowEdit(null);
       setTimeout(()=>setSaveMsg(null),5000);
     }
-  },[authState, distData]);
+  },[authState]);  // distData removido — lido via distDataRef.current
 
   // ── Save Pulse (full-field PATCH from PulseView) ──
   const savePulse = useCallback(async(project)=>{
@@ -1188,12 +1201,13 @@ function App() {
         if (headCol) payload[headCol]     = pctToSP(headTotal);
       });
       await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
-      // Update per-analyst + per-head distributions in dist file
+      // Usa distDataRef.current para garantir que férias/extras salvos antes não sejam perdidos
+      const cur = distDataRef.current;
       const newDist = {
-        ...distData,
-        distributions:     {...(distData.distributions||{})},
-        headDistributions: {...(distData.headDistributions||{})},
-        localProjects:     [...(distData.localProjects||[])],
+        ...cur,
+        distributions:     {...(cur.distributions||{})},
+        headDistributions: {...(cur.headDistributions||{})},
+        localProjects:     [...(cur.localProjects||[])],
       };
       const distEntry={};
       PHASES.forEach(ph=>{ distEntry[ph.key]=project.phases[ph.key]?.pcts||[]; });
@@ -1201,6 +1215,7 @@ function App() {
       const headDistEntry={};
       PHASES.forEach(ph=>{ headDistEntry[ph.key]=project.headPhases?.[ph.key]?.pcts||[]; });
       newDist.headDistributions[String(project.spId)] = headDistEntry;
+      distDataRef.current = newDist;
       await saveDistFile(authState.token, SP_SITE_URL, newDist);
       setDistData(newDist);
       setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
@@ -1211,7 +1226,7 @@ function App() {
       setSaving(false);
       setTimeout(()=>setSaveMsg(null), 5000);
     }
-  },[authState, distData]);
+  },[authState]);  // distData removido — lido via distDataRef.current
 
   // ── Suggestions ──
   function getSuggestions(proj, phKey) {
