@@ -970,9 +970,14 @@ const _spValidFields   = new Set(); // StaticNames reais e graváveis
 const _spRequiredFields= new Set(); // StaticNames de campos Required no SP
 const _spUnresolved    = []; // PULSE_FIELDS sem correspondência confirmada no SP
 
-// Normaliza string para matching: lowercase, sem acentos, só alfanumérico
+// Decodifica _xNNNN_ usado pelo SP nos nomes internos de colunas com acentos/especiais
+// Ex: 'Semestre_Or_x00e7_ament_x00e1_rio' → 'Semestre_Orçamentário'
+function _decodeSPName(s) {
+  return (s||'').replace(/_x([0-9a-fA-F]{4})_/gi,(m,h)=>String.fromCharCode(parseInt(h,16)));
+}
+// Normaliza para comparação: decode SP → remove acentos → lowercase → só alfanumérico
 function _normMatch(s) {
-  return (s||'').toLowerCase()
+  return _decodeSPName(s).toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .replace(/[^a-z0-9]/g,'');
 }
@@ -1006,14 +1011,32 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
-    // SOMENTE match exato — sem fuzzy/parcial para evitar falsos positivos como 'Assessments'
+    // Match em 3 passos — sem fuzzy/parcial para evitar falsos positivos
+    const normK = f => _normMatch(f.k);
     PULSE_FIELDS.forEach(f=>{
-      const exact = writable.find(sf=>sf.InternalName===f.k||sf.StaticName===f.k);
-      if (exact) {
-        _spFieldMap[f.k] = exact.StaticName||exact.InternalName;
+      const nk = normK(f);
+
+      // 1. Exact string match (InternalName ou StaticName)
+      let match = writable.find(sf=>sf.InternalName===f.k||sf.StaticName===f.k);
+
+      // 2. Normalized exact match — resolve diferenças de codificação de acentos no SP
+      //    Ex: código 'Semestre_Orcamentario' ↔ SP 'Semestre_Or_x00e7_ament_x00e1_rio'
+      if (!match) match = writable.find(sf=>_normMatch(sf.InternalName)===nk||_normMatch(sf.StaticName)===nk);
+
+      // 3. Normalized Title match — para casos onde o nome interno difere muito do label
+      //    Só aceita match EXATO (normalizado) no Title para evitar ambiguidade
+      if (!match) {
+        const normL = _normMatch(f.l);
+        match = writable.find(sf=>_normMatch(sf.Title)===normL);
+      }
+
+      if (match) {
+        _spFieldMap[f.k] = match.StaticName||match.InternalName;
+        _spValidFields.add(_spFieldMap[f.k]);
       } else {
         _spUnresolved.push({k:f.k, l:f.l, s:f.s});
       }
+
       if (f.t==='select') {
         const resolved=_spFieldMap[f.k]||f.k;
         if (choiceMap[resolved]) f.o=choiceMap[resolved];
