@@ -855,30 +855,50 @@ async function createSPItem(token, siteUrl, listName, payload) {
 // No field-length limits, no new columns, no Documents folder needed.
 const DIST_MARKER   = '__alocacao_dist__';
 const DIST_ATT_NAME = 'dist.json';
+// Busca o item marcador sem $filter (mais confiável — SP às vezes não retorna resultado
+// com $filter em Title mesmo o item existindo, causando tentativa de criação duplicada).
+async function _findDistItem(token, siteUrl) {
+  const base = _spListBase(siteUrl, SP_LIST_NAME);
+  const hdrs = {'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'};
+  let url = `${base}/items?$select=Id,Title&$top=500`;
+  while (url) {
+    const res = await fetch(url, { headers: hdrs });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const found = (json.value||[]).find(i=>i.Title===DIST_MARKER);
+    if (found) return found;
+    url = json['@odata.nextLink']||null;
+  }
+  return null;
+}
 async function _getOrCreateDistItem(token, siteUrl) {
-  const base   = _spListBase(siteUrl, SP_LIST_NAME);
-  const chkUrl = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
-  const chkRes = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
-  if (!chkRes.ok) throw new Error(`Erro ao buscar dist item: ${chkRes.status}`);
-  const existing = ((await chkRes.json()).value||[])[0];
+  const base = _spListBase(siteUrl, SP_LIST_NAME);
+  const hdrs = {'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'};
+
+  // 1. Busca sem $filter server-side (evita inconsistências do SP)
+  const existing = await _findDistItem(token, siteUrl);
   if (existing) return existing.Id;
-  // Create marker item
+
+  // 2. Cria o item marcador
   const postRes = await fetch(`${base}/items`, {
     method:'POST',
-    headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata','Content-Type':'application/json;odata=nometadata'},
+    headers:{...hdrs,'Content-Type':'application/json;odata=nometadata'},
     body: JSON.stringify({ Title: DIST_MARKER }),
   });
-  if (!postRes.ok) { const t=await postRes.text().catch(()=>''); throw new Error(`Erro ao criar dist item: ${postRes.status} ${t.slice(0,100)}`); }
-  return (await postRes.json()).Id;
+  if (postRes.ok) return (await postRes.json()).Id;
+
+  // 3. Se criação falhar (duplicate ou race condition), tenta achar de novo
+  const retry = await _findDistItem(token, siteUrl);
+  if (retry) return retry.Id;
+
+  const t = await postRes.text().catch(()=>'');
+  throw new Error(`Erro ao criar dist item: ${postRes.status} ${t.slice(0,150)}`);
 }
 async function fetchDistFile(token, siteUrl) {
   try {
-    const base   = _spListBase(siteUrl, SP_LIST_NAME);
-    const chkUrl = `${base}/items?$select=Id&$filter=Title eq '${DIST_MARKER}'&$top=1`;
-    const chkRes = await fetch(chkUrl, { headers:{'Authorization':`Bearer ${token}`,'Accept':'application/json;odata=nometadata'} });
-    if (!chkRes.ok) return {distributions:{},localProjects:[]};
-    const item = ((await chkRes.json()).value||[])[0];
+    const item = await _findDistItem(token, siteUrl);
     if (!item) return {distributions:{},localProjects:[]};
+    const base = _spListBase(siteUrl, SP_LIST_NAME);
     const attRes = await fetch(`${base}/items(${item.Id})/AttachmentFiles('${DIST_ATT_NAME}')/$value`, {
       headers:{'Authorization':`Bearer ${token}`,'Accept':'text/plain'},
     });
