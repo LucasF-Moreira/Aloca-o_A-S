@@ -172,8 +172,7 @@ const PULSE_FIELDS = [
     {s:'Etapas de Avaliação', k:`Etapa${n}_Posicao`,           l:'Posição',                     t:'select', o:_pos,     etapa:n},
     {s:'Etapas de Avaliação', k:`Nome_Etapa${n}`,              l:'Nome',                        t:'text',   etapa:n},
     {s:'Etapas de Avaliação', k:`Qtdd_Sala_Dia_Etapa${n}`,     l:'Qtdd Sala/Dia',               t:'number', etapa:n},
-    {s:'Etapas de Avaliação', k:`Data_Inicio_Etapa${n}`,       l:'Início',                      t:'date',   etapa:n},
-    {s:'Etapas de Avaliação', k:`Data_Termino_Etapa${n}`,      l:'Término',                     t:'date',   etapa:n},
+    // Datas removidas do PULSE_FIELDS — usam as datas de alocação (Inicio_Etapa_N/Fim_Etapa_N)
     {s:'Etapas de Avaliação', k:`Desafios_Etapa${n}`,          l:'Desafios',                    t:'textarea', w:true, etapa:n},
     {s:'Etapas de Avaliação', k:`Indicadores_Etapa${n}`,       l:'Indicadores',                 t:'textarea', w:true, etapa:n},
   ]),
@@ -962,8 +961,9 @@ function mergeProjectsWithDist(spItems, dist) {
 }
 
 // ─── SP Field Name Resolution ──────────────────────────────────────────────────
-// Tipos SP graváveis via PATCH simples (texto, nota, data, moeda, choice, bool, número)
-const SP_WRITABLE_TYPES = new Set([1,2,3,5,6,8,9,15]);
+// Tipos SP graváveis via PATCH — baseado no SPFieldType enum real:
+// 2=Text, 3=Note, 4=DateTime, 6=Choice, 8=Boolean, 9=Number, 10=Currency, 15=MultiChoice
+const SP_WRITABLE_TYPES = new Set([2,3,4,6,8,9,10,15]);
 
 // Mapeamento explícito: k do código → StaticName real no SP (obtido via console log).
 // null = campo não existe no SP (será silenciosamente ignorado no save).
@@ -989,8 +989,11 @@ const PULSE_FIELD_SP_OVERRIDES = {
   'Parceiro_diversidade':              'Tevealgumparceiroparaatrairdiver',
   'Flexibilizacao_criterios_internos': 'Flexibiliza_x00e7__x00e3_odecrit',
   'Criterios_Flexibilizados_Internos': 'Crit_x00e9_rios_Flexibilizados_I',
-  // Aguardando nomes SP dos campos abaixo — existem na lista mas não apareceram no log
-  // (será resolvido após novo diagnóstico com log completo)
+  // Prospecção — nomes internos com encoding especial (1ª/2ª/3ª → _x0031__x00aa_ etc.)
+  '_1a_Prospeccao': '_x0031__x00aa__Prospec_x00e7_ao',
+  '_2a_Prospeccao': '_x0032__x00aa__Prospec_x00e7_ao',
+  '_3a_Prospeccao': '_x0033__x00aa__Prospec_x00e7_ao',
+  // Data_Inicio/Termino_Etapa removidos do PULSE_FIELDS — datas unificadas com alocação
 };
 
 const _spFieldMap      = {}; // { codigoKey → StaticName real no SP }
@@ -3553,10 +3556,28 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoice
               <div className="divide-y divide-slate-100">
                 {[1,2,3,4,5].map(n=>{
                   const ef=PULSE_FIELDS.filter(f=>f.etapa===n);
+                  const phKey=`Etapa_${n}`;
+                  const phase=phases[phKey]||{};
                   return (
                     <div key={n} className="px-4 py-3">
                       <p className="text-xs font-bold text-indigo-600 mb-2">Etapa {n}</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Datas de alocação — mesmas que movem a grade de alocação */}
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            Início <span className="text-indigo-400 text-xs">(alocação)</span>
+                          </label>
+                          <input type="date" value={phase.start||''} onChange={e=>updPhaseField(phKey,'start',e.target.value)}
+                            className={cls}/>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">
+                            Término <span className="text-indigo-400 text-xs">(alocação)</span>
+                          </label>
+                          <input type="date" value={phase.end||''} onChange={e=>updPhaseField(phKey,'end',e.target.value)}
+                            className={cls}/>
+                        </div>
+                        {/* Demais campos da etapa */}
                         {ef.map(f=>(
                           <div key={f.k} className={f.w?'sm:col-span-2':''}>
                             <label className="block text-xs font-medium text-slate-600 mb-1">{f.l}</label>
