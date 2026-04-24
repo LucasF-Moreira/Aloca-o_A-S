@@ -1011,6 +1011,12 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
+    // Log diagnóstico — abre DevTools (F12) → Console para ver os nomes reais do SP
+    const unresolvedKeys = new Set(PULSE_FIELDS.map(f=>f.k));
+    writable.forEach(f=>{ unresolvedKeys.delete(f.InternalName); unresolvedKeys.delete(f.StaticName); });
+    console.log('📋 SP writable fields (InternalName | StaticName | Title):');
+    writable.forEach(f=>console.log(`  ${f.InternalName} | ${f.StaticName} | ${f.Title}`));
+
     // Match em 3 passos — sem fuzzy/parcial para evitar falsos positivos
     const normK = f => _normMatch(f.k);
     PULSE_FIELDS.forEach(f=>{
@@ -1043,6 +1049,13 @@ async function fetchSPChoices(token, siteUrl, listName) {
         else if (choiceMap[f.k]) f.o=choiceMap[f.k];
       }
     });
+
+    if (_spUnresolved.length>0) {
+      console.warn('⚠️ PULSE_FIELDS sem match no SP (código k → label):');
+      _spUnresolved.forEach(u=>console.warn(`  k:"${u.k}" → l:"${u.l}"`));
+    } else {
+      console.log('✅ Todos os PULSE_FIELDS mapeados com sucesso no SP.');
+    }
 
     return choiceMap;
   } catch { return {}; }
