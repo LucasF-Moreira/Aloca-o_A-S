@@ -1006,29 +1006,14 @@ async function fetchSPChoices(token, siteUrl, listName) {
       }
     });
 
+    // SOMENTE match exato — sem fuzzy/parcial para evitar falsos positivos como 'Assessments'
     PULSE_FIELDS.forEach(f=>{
-      // 1. Exact match no InternalName ou StaticName
-      const exactKey = writable.find(sf=>sf.InternalName===f.k||sf.StaticName===f.k);
-      if (exactKey) { _spFieldMap[f.k]=exactKey.StaticName||exactKey.InternalName; }
-      else {
-        // 2. Match pelo label (f.l) contra Title do campo SP — mais confiável que nome interno
-        const normL = _normMatch(f.l);
-        const byLabel = writable.find(sf=>_normMatch(sf.Title)===normL);
-        if (byLabel) { _spFieldMap[f.k]=byLabel.StaticName||byLabel.InternalName; _spValidFields.add(_spFieldMap[f.k]); }
-        else {
-          // 3. Match parcial pelo label
-          const byPartial = writable.find(sf=>{
-            const t=_normMatch(sf.Title);
-            return t.length>3 && (t.includes(normL)||normL.includes(t));
-          });
-          if (byPartial) { _spFieldMap[f.k]=byPartial.StaticName||byPartial.InternalName; _spValidFields.add(_spFieldMap[f.k]); }
-          else {
-            // Sem correspondência confirmada — registra para avisar o usuário
-            _spUnresolved.push({k:f.k, l:f.l, s:f.s});
-          }
-        }
+      const exact = writable.find(sf=>sf.InternalName===f.k||sf.StaticName===f.k);
+      if (exact) {
+        _spFieldMap[f.k] = exact.StaticName||exact.InternalName;
+      } else {
+        _spUnresolved.push({k:f.k, l:f.l, s:f.s});
       }
-      // Atualiza opções do select com as do SP
       if (f.t==='select') {
         const resolved=_spFieldMap[f.k]||f.k;
         if (choiceMap[resolved]) f.o=choiceMap[resolved];
@@ -1292,20 +1277,22 @@ function App() {
         Head_2:             project.head2||null,
         Head_3:             project.head3||null,
       };
-      // Pulse extra fields — usa nome SP real, respeita Required e exclui tipos não graváveis
+      // Pulse extra fields — regras definitivas:
+      // 1. Só inclui campos com match EXATO confirmado em _spFieldMap
+      // 2. NUNCA envia null/vazio — campos sem valor são omitidos (SP mantém o existente)
+      // 3. Para limpar um campo, o usuário deve fazê-lo diretamente no SP ou aguardamos
+      //    mapearmos os nomes corretos de todos os campos unresolved
       if (project.pulseData) {
-        const skipped = [];
         PULSE_FIELDS.forEach(f=>{
-          if (!_isSpWritable(f.k)) { skipped.push(f.l); return; }
-          const spKey = _resolveFieldName(f.k);
+          // Pula se não houver match exato confirmado no SP
+          if (!_spFieldMap[f.k] && _spValidFields.size>0) return;
+          const spKey = _spFieldMap[f.k]||f.k;
           const v = project.pulseData[f.k];
           const isEmpty = v===''||v===null||v===undefined;
-          // Campos Required com valor vazio: omitir do payload (SP mantém valor existente)
-          // Campos opcionais com valor vazio: enviar null para permitir limpeza
-          if (isEmpty && _spRequiredFields.has(spKey)) return;
-          payload[spKey] = (f.t==='date') ? (v ? fmtDateForSP(v) : null) : (isEmpty ? null : v);
+          if (isEmpty) return; // nunca enviar null — omite e SP mantém valor atual
+          if (f.t==='date') { const d=fmtDateForSP(v); if(d) payload[spKey]=d; }
+          else payload[spKey] = v;
         });
-        if (skipped.length>0) console.warn('⚠️ Campos sem correspondência no SP:', skipped);
       }
       for (let i=0; i<MAX_ANALYSTS; i++) {
         payload[`Analista_${i+1}`] = project.analysts[i]||null;
@@ -1342,7 +1329,7 @@ function App() {
       setProjects(prev=>prev.map(p=>p.id===project.id ? {...project} : p));
       if (_spUnresolved.length>0) {
         const names = _spUnresolved.map(u=>u.l).join(', ');
-        setSaveMsg({type:'warn', text:`✓ Salvo — mas ${_spUnresolved.length} campo(s) não encontrado(s) no SP e não foram gravados: ${names}`});
+        setSaveMsg({type:'warn', text:`✓ Salvo — ${_spUnresolved.length} campo(s) com nome interno diferente no SP (não gravados): ${names}`});
       } else {
         setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
       }
