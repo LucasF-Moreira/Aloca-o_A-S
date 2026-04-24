@@ -1293,21 +1293,20 @@ function App() {
             .filter(p=>p.source==='sharepoint')
             .map(p=>Number(p.indice)||0)
             .reduce((a,b)=>Math.max(a,b), 0);
-          // Para criação: omitir campos nulos/zero para evitar SPDuplicateValuesFoundException
-          // em colunas com "Enforce unique values". SP usa os valores padrão da coluna.
-          const createPayload = {};
-          Object.entries(payload).forEach(([k,v])=>{
-            if (v===null||v===undefined||v===0||v==='') return; // omite valores vazios/zero
-            createPayload[k] = v;
-          });
-          const fullPayload = {
-            ...createPayload,
-            Title:project.title, Nome_Programa:project.title,
-            Cliente:project.client||'', Status_Programa:project.status||'',
-            indice: maxIndice + 1,
-          };
-          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, fullPayload);
+          // Passo 1: criar item com campos mínimos (evita SPDuplicateValuesFoundException
+          // em colunas com "Enforce unique values" que receberiam null/0/'' duplicados)
+          const minPayload = { Title:project.title, Nome_Programa:project.title, indice:maxIndice+1 };
+          if (project.client)  minPayload.Cliente          = project.client;
+          if (project.status)  minPayload.Status_Programa  = project.status;
+          if (project.ciclo)   minPayload.Ciclo_Orcamentario = project.ciclo;
+          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, minPayload);
           const newId   = created.Id||created.id;
+          // Passo 2: atualizar com o restante dos campos via PATCH
+          const updatePayload = {};
+          Object.entries(payload).forEach(([k,v])=>{ if(v!==null&&v!==undefined&&v!==0&&v!=='') updatePayload[k]=v; });
+          if (Object.keys(updatePayload).length>0) {
+            await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, newId, updatePayload);
+          }
           const saved   = {...project, spId:newId, id:String(newId), source:'sharepoint'};
           setProjects(prev=>[...prev, saved]);
           project = saved; // update reference for dist save below
