@@ -96,15 +96,16 @@ async function fetchHeadPctCols(token, siteUrl, listName) {
     const json = await spFetch(token, `${base}/fields?$select=StaticName,Title&$top=500`);
     const fields = json.value||[];
     PHASES.forEach(ph=>{
-      // Palavras que devem aparecer no StaticName (split por _ e lowercase)
       const words = ph.key.toLowerCase().split('_');
+      // Busca por contenção de 'consultor' e 'head' + todas as palavras da chave da fase
+      // NÃO exige 'pct' no nome — evita falha para colunas com nome truncado (ex: _P)
       const match = fields.find(f=>{
         const s = f.StaticName.toLowerCase();
-        // Deve conter 'consultor', 'head', 'pct' e todos os fragmentos do ph.key
-        return s.includes('consultor') && s.includes('head') && s.includes('pct')
+        return s.includes('consultor') && s.includes('head')
           && words.every(w=>s.includes(w));
       });
-      HEAD_PCT_COLS[ph.key] = match ? match.StaticName : null;
+      // Só atualiza se encontrou — nunca sobrescreve com null (preserva o default correto)
+      if (match) HEAD_PCT_COLS[ph.key] = match.StaticName;
     });
   } catch { /* mantém defaults */ }
 }
@@ -1195,13 +1196,15 @@ function App() {
   const loadAll = useCallback(async(token)=>{
     setLoading(true); setError('');
     try {
+      // fetchHeadPctCols PRIMEIRO — garante que HEAD_PCT_COLS está correto
+      // antes de fetchSPList chamar parseSPItem (evita race condition)
+      await fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME);
       const [spItems, dist, team, hteam, choices] = await Promise.all([
         fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
         fetchDistFile(token, SP_SITE_URL),
         fetchTeamMembers(token, SP_SITE_URL),
         fetchHeadMembers(token, SP_SITE_URL),
-        fetchSPChoices(token, SP_SITE_URL, SP_LIST_NAME), // campos Choice do SP
-        fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME),
+        fetchSPChoices(token, SP_SITE_URL, SP_LIST_NAME),
       ]);
       setSpChoices(choices||{});
       setDistData(dist);
