@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <title>Controle A&S — Cia de Talentos</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1288,8 +1291,9 @@ function App() {
       // Usa distDataRef.current para preservar férias/extras salvos anteriormente
       const newDist = {
         ...distDataRef.current,
-        distributions: {...(distDataRef.current.distributions||{})},
-        localProjects:  [...(distDataRef.current.localProjects||[])],
+        distributions:     {...(distDataRef.current.distributions||{})},
+        headDistributions: {...(distDataRef.current.headDistributions||{})},
+        localProjects:     [...(distDataRef.current.localProjects||[])],
       };
 
       if (project.source==='sharepoint') {
@@ -1303,28 +1307,37 @@ function App() {
             .filter(p=>p.source==='sharepoint')
             .map(p=>Number(p.indice)||0)
             .reduce((a,b)=>Math.max(a,b), 0);
-          // Passo 1: criar item com campos mínimos (evita SPDuplicateValuesFoundException
-          // em colunas com "Enforce unique values" que receberiam null/0/'' duplicados)
-          const minPayload = { Title:project.title, Nome_Programa:project.title, indice:maxIndice+1 };
-          if (project.client)  minPayload.Cliente          = project.client;
-          if (project.status)  minPayload.Status_Programa  = project.status;
-          if (project.ciclo)   minPayload.Ciclo_Orcamentario = project.ciclo;
-          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, minPayload);
-          const newId   = created.Id||created.id;
-          // Passo 2: atualizar com o restante dos campos via PATCH
-          const updatePayload = {};
-          Object.entries(payload).forEach(([k,v])=>{ if(v!==null&&v!==undefined&&v!==0&&v!=='') updatePayload[k]=v; });
-          if (Object.keys(updatePayload).length>0) {
-            await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, newId, updatePayload);
-          }
+          // Passo 1: busca o indice máximo real direto do SP (evita stale state)
+          let freshMaxIndice = maxIndice;
+          try {
+            const base = _spListBase(SP_SITE_URL, SP_LIST_NAME);
+            const idxRes = await spFetch(authState.token,
+              `${base}/items?$select=indice&$orderby=indice desc&$top=1&$filter=Title ne '${DIST_MARKER}'`
+            );
+            const topItem = (idxRes.value||[])[0];
+            if (topItem) freshMaxIndice = Math.max(freshMaxIndice, Number(topItem.indice)||0);
+          } catch {}
+          // CREATE com Title único via timestamp — evita SPDuplicateValuesFoundException
+          const tempTitle = `__new_${Date.now()}__`;
+          const created = await createSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, {
+            Title: tempTitle,
+            indice: freshMaxIndice + 1,
+          });
+          const newId = created.Id||created.id;
+          // Passo 2: PATCH com todos os dados reais (title, client, status, fases, analistas…)
+          const patchPayload = { ...payload };  // já inclui Nome_Programa, Title, Cliente, Status_Programa
+          await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, newId, patchPayload);
           const saved   = {...project, spId:newId, id:String(newId), source:'sharepoint'};
           setProjects(prev=>[...prev, saved]);
           project = saved; // update reference for dist save below
         }
-        // Save per-analyst distribution for this SP project
+        // Save per-analyst AND per-head distributions for this SP project
         const dist={};
         PHASES.forEach(ph=>{ dist[ph.key]=project.phases[ph.key]?.pcts||[]; });
         newDist.distributions[String(project.spId)] = dist;
+        const headDist={};
+        PHASES.forEach(ph=>{ headDist[ph.key]=project.headPhases?.[ph.key]?.pcts||[]; });
+        newDist.headDistributions[String(project.spId)] = headDist;
         setSaveMsg({type:'success', text:'✓ Salvo no SharePoint.'});
 
       } else {
