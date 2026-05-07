@@ -1413,8 +1413,14 @@ function App() {
           const v = project.pulseData[f.k];
           const isEmpty = v===''||v===null||v===undefined;
           if (isEmpty) return; // nunca enviar null — omite e SP mantém valor atual
-          if (f.t==='date') { const d=fmtDateForSP(v); if(d) payload[spKey]=d; }
-          else payload[spKey] = v;
+          if (f.t==='date') {
+            const d=fmtDateForSP(v); if(d) payload[spKey]=d;
+          } else if (f.t==='number') {
+            const n=parseFloat(String(v).replace(',','.'));
+            if (!isNaN(n)) payload[spKey]=n; // envia número, não string
+          } else {
+            payload[spKey] = v; // text, textarea, select → string
+          }
         });
       }
       for (let i=0; i<MAX_ANALYSTS; i++) {
@@ -3222,12 +3228,81 @@ function AnalystDetailModal({analyst,allProjects,onClose,extraAllocations,onSave
   );
 }
 
+// ─── Field Inspector (diagnóstico completo da List_Pulse) ─────────────────────
+async function fetchFieldInspection(token, siteUrl, listName) {
+  const base = _spListBase(siteUrl, listName);
+  const json = await spFetch(token,
+    `${base}/fields?$select=InternalName,StaticName,Title,FieldTypeKind,Required,ReadOnlyField,Choices,MaxLength,SchemaXml&$top=500`
+  );
+  const TYPE_NAMES = {
+    1:'Integer',2:'Text',3:'Note',4:'DateTime',5:'Counter',6:'Choice',
+    7:'Lookup',8:'Boolean',9:'Number',10:'Currency',11:'URL',12:'Computed',
+    14:'GUID',15:'MultiChoice',17:'GridChoice',19:'Attachments',20:'User',
+    21:'Recurrence',22:'CrossProjectLink',23:'ModStat',25:'ContentTypeId',
+    101:'File',
+  };
+  const PULSE_KEYS = new Set(PULSE_FIELDS.map(f=>f.k));
+  const PULSE_MAP  = {};
+  PULSE_FIELDS.forEach(f=>{ PULSE_MAP[f.k]=f; });
+
+  // Campos relevantes: todos os graváveis não-sistema
+  const skip = new Set(['ContentTypeId','_ModerationComments','File_x0020_Type','_ColorHex',
+    '_ColorTag','_Emoji','ComplianceAssetId','LinkTitle','LinkTitle2','SelectTitle',
+    'InstanceID','GUID','WorkflowInstanceID','_Level','_IsCurrentVersion','MetaInfo',
+    'ItemChildCount','FolderChildCount','_CommentCount','_CommentFlags','owshiddenversion',
+    'WorkflowVersion','_UIVersion','_UIVersionString']);
+
+  const rows = (json.value||[])
+    .filter(f=>!f.ReadOnlyField && !skip.has(f.InternalName) && f.FieldTypeKind!==25)
+    .map(f=>{
+      const typeName = TYPE_NAMES[f.FieldTypeKind]||`T${f.FieldTypeKind}`;
+      const choices  = (f.Choices?.results||f.Choices||[]).filter(c=>c&&c.trim());
+      const ourField = PULSE_MAP[f.InternalName] || PULSE_MAP[f.StaticName]
+        || Object.values(PULSE_MAP).find(p=>_spFieldMap[p.k]===f.StaticName||_spFieldMap[p.k]===f.InternalName);
+      const ourType  = ourField?.t||'—';
+      const typeMismatch = ourField && (
+        (f.FieldTypeKind===4 && ourField.t!=='date') ||
+        (f.FieldTypeKind===9 && ourField.t!=='number') ||
+        (f.FieldTypeKind===6 && ourField.t!=='select') ||
+        (f.FieldTypeKind===15 && ourField.t!=='select') ||
+        (f.FieldTypeKind===8 && ourField.t!=='select')
+      );
+      return {
+        internalName: f.InternalName,
+        staticName:   f.StaticName,
+        title:        f.Title,
+        spType:       typeName,
+        spTypeKind:   f.FieldTypeKind,
+        required:     f.Required,
+        choices,
+        ourKey:       ourField?.k||'',
+        ourLabel:     ourField?.l||'',
+        ourType,
+        typeMismatch,
+        notMapped:    !ourField,
+      };
+    });
+  return rows;
+}
+
 // ─── Pulse View ───────────────────────────────────────────────────────────────
 function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoices}) {
   const [filters,     setFilters]     = useState({ciclo:'', analista:'', head:'', ka:'', client:'', nome:''});
-  const [editProject, setEditProject] = useState(null);
-  const [editLoading, setEditLoading] = useState(false);
-  const [editError,   setEditError]   = useState('');
+  const [editProject,   setEditProject]   = useState(null);
+  const [editLoading,   setEditLoading]   = useState(false);
+  const [editError,     setEditError]     = useState('');
+  const [inspecting,    setInspecting]    = useState(false);
+  const [inspection,    setInspection]    = useState(null);
+  const [inspectError,  setInspectError]  = useState('');
+
+  async function handleInspect() {
+    setInspecting(true); setInspectError('');
+    try {
+      const rows = await fetchFieldInspection(token, SP_SITE_URL, SP_LIST_NAME);
+      setInspection(rows);
+    } catch(e) { setInspectError('Erro: '+e.message); }
+    finally { setInspecting(false); }
+  }
 
   // Only SP projects are editable via Pulse
   const spProjects = projects.filter(p=>p.source==='sharepoint');
@@ -3282,8 +3357,62 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
     <div className="fade-in max-w-screen-2xl mx-auto px-4 pb-10 mt-4 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-lg font-bold text-slate-800">List_Pulse</h2>
-        <span className="text-xs text-slate-500">{filtered.length} de {spProjects.length} registros</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">{filtered.length} de {spProjects.length} registros</span>
+          <button onClick={handleInspect} disabled={inspecting}
+            title="Inspeciona todos os campos da List_Pulse: tipo, obrigatoriedade, opções de escolha, mapeamento"
+            className="text-xs border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-700 px-2.5 py-1.5 rounded-lg transition disabled:opacity-50 flex items-center gap-1">
+            {inspecting?'⏳':'🔍'} Inspecionar Campos
+          </button>
+        </div>
       </div>
+
+      {/* ── Inspection Panel ── */}
+      {inspectError&&<p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-4 py-3">{inspectError}</p>}
+      {inspection&&(
+        <div className="bg-white rounded-xl border border-amber-200 overflow-hidden">
+          <div className="bg-amber-50 px-4 py-3 flex items-center justify-between border-b border-amber-200">
+            <div>
+              <h3 className="text-sm font-bold text-amber-800">🔍 Inspeção de Campos — List_Pulse</h3>
+              <p className="text-xs text-amber-600 mt-0.5">
+                {inspection.filter(r=>r.typeMismatch).length} tipo(s) errado(s) · {inspection.filter(r=>r.notMapped).length} não mapeado(s) · {inspection.length} campos graváveis total
+              </p>
+            </div>
+            <button onClick={()=>setInspection(null)} className="text-amber-400 hover:text-amber-700 text-lg">✕</button>
+          </div>
+          <div className="overflow-auto max-h-[60vh]">
+            <table className="min-w-full text-xs border-collapse">
+              <thead className="sticky top-0 bg-amber-50">
+                <tr>
+                  {['InternalName (SP)','Title (SP)','Tipo SP','Obrig.','Opções SP (Choice)','Chave Código','Label Código','Tipo Código','Status'].map(h=>(
+                    <th key={h} className="px-3 py-2 text-left text-amber-700 font-semibold whitespace-nowrap border-b border-amber-100">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {inspection.map((r,i)=>{
+                  const bg = r.typeMismatch?'bg-red-50':r.notMapped?'bg-slate-50':'';
+                  const status = r.typeMismatch?'⚠️ Tipo errado':r.notMapped?'— Não mapeado':'✓';
+                  const statusColor = r.typeMismatch?'text-red-600 font-semibold':r.notMapped?'text-slate-400':'text-green-600';
+                  return (
+                    <tr key={i} className={`${bg} hover:bg-amber-50/40 transition`}>
+                      <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{r.internalName}</td>
+                      <td className="px-3 py-1.5 text-slate-700">{r.title}</td>
+                      <td className="px-3 py-1.5 text-slate-500 whitespace-nowrap">{r.spType} ({r.spTypeKind})</td>
+                      <td className="px-3 py-1.5 text-center">{r.required?'✓':''}</td>
+                      <td className="px-3 py-1.5 text-slate-500 max-w-xs truncate" title={r.choices.join(', ')}>{r.choices.join(', ')||'—'}</td>
+                      <td className="px-3 py-1.5 font-mono text-indigo-600 whitespace-nowrap">{r.ourKey||'—'}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{r.ourLabel||'—'}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{r.ourType}</td>
+                      <td className={`px-3 py-1.5 whitespace-nowrap ${statusColor}`}>{status}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="bg-white rounded-xl border border-slate-200 p-4">
