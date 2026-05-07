@@ -1196,6 +1196,11 @@ function App() {
     return [...set].sort();
   },[headMembers, filteredProjects]);
   const months          = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
+  // Alocações base + extras mescladas para o Dashboard (mensal)
+  const activeAllocsWithExtras = useMemo(()=>{
+    const base = entityView==='head' ? headAllocations : allocations;
+    return mergeExtras(base, extraAllocations, months, 'month');
+  },[entityView, headAllocations, allocations, extraAllocations, months]);
 
   // ── Load all data: SP items + dist file → merged projects ──
   const loadAll = useCallback(async(token)=>{
@@ -1587,11 +1592,6 @@ function App() {
   const isHeadView   = entityView==='head';
   const activeNames  = isHeadView ? heads     : analysts;
   const activeAllocs = isHeadView ? headAllocations : allocations;
-  // Mescla alocações extras no mapa mensal para o Dashboard (a Grade já faz isso internamente)
-  const activeAllocsWithExtras = useMemo(()=>
-    mergeExtras(activeAllocs, extraAllocations, months, 'month'),
-    [activeAllocs, extraAllocations, months]
-  );
 
   return (
     <div className="min-h-screen bg-slate-50">
