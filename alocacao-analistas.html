@@ -3250,10 +3250,12 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
     setEditLoading(true);
     try {
       const raw = await fetchSPItemFull(token, SP_SITE_URL, SP_LIST_NAME, proj.spId);
-      // Extrai campos Pulse do item completo
+      // Extrai campos Pulse usando o StaticName real do SP (via _spFieldMap),
+      // com fallback para f.k — igual ao que parseSPItem faz
       const pulseData = {};
       PULSE_FIELDS.forEach(f=>{
-        const v = raw[f.k];
+        const spKey = _spFieldMap[f.k] && _spFieldMap[f.k]!=='__nonexistent__' ? _spFieldMap[f.k] : f.k;
+        const v = raw[spKey]!==undefined ? raw[spKey] : raw[f.k];
         pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(v)||'') : (v!==undefined&&v!==null ? String(v) : '');
       });
       setEditProject({...proj, pulseData});
