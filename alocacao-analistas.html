@@ -1587,6 +1587,11 @@ function App() {
   const isHeadView   = entityView==='head';
   const activeNames  = isHeadView ? heads     : analysts;
   const activeAllocs = isHeadView ? headAllocations : allocations;
+  // Mescla alocações extras no mapa mensal para o Dashboard (a Grade já faz isso internamente)
+  const activeAllocsWithExtras = useMemo(()=>
+    mergeExtras(activeAllocs, extraAllocations, months, 'month'),
+    [activeAllocs, extraAllocations, months]
+  );
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1616,7 +1621,7 @@ function App() {
           </div>
         )}
         {view==='dashboard'&&(
-          <DashboardView analysts={activeNames} allocations={activeAllocs} months={months}
+          <DashboardView analysts={activeNames} allocations={activeAllocsWithExtras} months={months}
             monthRange={monthRange} setMonthRange={setMonthRange} onAnalystClick={setShowAnalystDetail}
             vacations={vacations} entityView={entityView}/>
         )}
