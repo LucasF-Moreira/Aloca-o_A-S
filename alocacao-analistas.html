@@ -114,32 +114,50 @@ async function fetchHeadPctCols(token, siteUrl, listName) {
 // NOTA: 'k' = nome interno da coluna no SP (verificar com Configurações da Lista → coluna → Nome interno).
 //       Campos com espaços ou caracteres especiais foram simplificados para nomes internos prováveis.
 //       t: 'text'|'textarea'|'number'|'date'|'select'  w:true = largura total  etapa:n = etapa 1-5
-const _yn  = ['Sim','Não'];
-const _rel = ['Excelente','Bom','Regular','Ruim'];
+const _yn      = ['Sim','Não'];
+const _rel     = ['Excelente','Bom','Regular','Ruim'];
 const _tpEtapa = ['Dinâmica de Grupo','Entrevista Individual','Painel','Entrevista com Gestores',
                   'Case','Role Play','Assessment Center','Teste Técnico','Videoentrevista','Outro'];
-const _pos    = ['Presencial','Online','Híbrido'];
-const _stPes  = ['Enviada','Respondida','Pendente','Não enviada'];
+const _pos     = ['Presencial','Online','Híbrido'];
+const _atingiu = ['Não teve','Atingida','Não atingida'];
+const _pedra   = ['-','Diamante','Safira','Rubi'];
+const _respPedra = ['-','Carla Esteves','Claudia Pereira','Esteban Morin','Luana De Paula','Milie Haji','Paula Esteves'];
+const _publico    = ['-','Seleção - Projeto Estágio Completo','Seleção - Projeto Trainee Completo','Outro'];
+const _tipoProg   = ['-','Customizado','Digital +','Vaga Pontual','Bolsas'];
+const _segmento   = ['Financeiro','Industrial','Serviços','Agronegócio','Outros'];
+const _periodicidade = ['Mensal','Semanal','Anual'];
+const _duracaoExp = ['1 ano','2 anos','3 anos','Acima de 3 anos'];
+const _headcount  = ['Headcount da área','Headcount do programa (RH)'];
+const _duracao    = ['12 meses','18 meses','24 meses','Acima de 24 meses'];
+const _tempo      = ['Primeiro programa','Há 1 ano','Há 2 anos','Há 3 anos','Há 4 anos','Há 5 anos',
+                     'Há 6 anos','Há 7 anos','Há 8 anos','Há 9 anos','Há 10 anos','Mais de 10 anos'];
+const _ats        = ['Globe','Vagas','Outro'];
+const _assessments= ['Culturama','Recognita','Solu','Inglês EF','Talkia','Strateegia','Genius e Lifestyle','Volt'];
+const _etapaProc  = ['Planejamento/EB','Inscrições','Ranking','Assessments','Dinâmica de Grupo',
+                     'Painel Final','Entrevista','Entrevista com Cliente','Contínuo','Relatório Final','Projeto Concluído'];
+const _envioResp  = ['Enviada','Não enviada'];
+const _respResp   = ['Respondida','Não respondida'];
+
 const PULSE_FIELDS = [
   // ── Identificação ──────────────────────────────────────────────────────────
   {s:'Identificação',         k:'Trimestre_Orcamentario',     l:'Trimestre Orç.',              t:'select', o:['Q1','Q2','Q3','Q4']},
   {s:'Identificação',         k:'Semestre_Orcamentario',      l:'Semestre Orç.',               t:'select', o:['1S','2S']},
   {s:'Identificação',         k:'Codigo_Proposta',             l:'Código Proposta',             t:'text'},
-  {s:'Identificação',         k:'ID_do_Programa_ATS',          l:'ID Programa ATS',             t:'text'},
+  {s:'Identificação',         k:'ID_do_Programa_ATS',          l:'ID Programa ATS',             t:'number'},
   {s:'Identificação',         k:'Nome_do_Programa_ATS',        l:'Nome Programa ATS',           t:'text'},
-  {s:'Identificação',         k:'ATS_Utilizado',               l:'ATS Utilizado',               t:'text'},
+  {s:'Identificação',         k:'ATS_Utilizado',               l:'ATS Utilizado',               t:'select', o:_ats},
   // ── Produto e Tipo ─────────────────────────────────────────────────────────
   {s:'Produto e Tipo',        k:'Produto_Principal',           l:'Produto Principal',           t:'text'},
   {s:'Produto e Tipo',        k:'Solucao',                     l:'Solução',                     t:'text'},
-  {s:'Produto e Tipo',        k:'Publico',                     l:'Público',                     t:'text'},
-  {s:'Produto e Tipo',        k:'Tipo_Programa',               l:'Tipo de Programa',            t:'text'},
-  {s:'Produto e Tipo',        k:'Segmento',                    l:'Segmento',                    t:'text'},
+  {s:'Produto e Tipo',        k:'Publico',                     l:'Público',                     t:'select', o:_publico},
+  {s:'Produto e Tipo',        k:'Tipo_Programa',               l:'Tipo de Programa',            t:'select', o:_tipoProg},
+  {s:'Produto e Tipo',        k:'Segmento',                    l:'Segmento',                    t:'select', o:_segmento},
   {s:'Produto e Tipo',        k:'Micro_Segmento',              l:'Micro Segmento',              t:'text'},
-  {s:'Produto e Tipo',        k:'Periodicidade_contratacoes',  l:'Periodicidade Contratações',  t:'text'},
+  {s:'Produto e Tipo',        k:'Periodicidade_contratacoes',  l:'Periodicidade Contratações',  t:'select', o:_periodicidade},
   // ── Gestão e Responsáveis ──────────────────────────────────────────────────
-  {s:'Gestão e Responsáveis', k:'Pedra',                       l:'Pedra',                       t:'text'},
-  {s:'Gestão e Responsáveis', k:'Responsavel_Pedra',           l:'Responsável Pedra',           t:'text'},
-  {s:'Gestão e Responsáveis', k:'Etapa_Processo',              l:'Etapa do Processo',           t:'text'},
+  {s:'Gestão e Responsáveis', k:'Pedra',                       l:'Pedra',                       t:'select', o:_pedra},
+  {s:'Gestão e Responsáveis', k:'Responsavel_Pedra',           l:'Responsável Pedra',           t:'select', o:_respPedra},
+  {s:'Gestão e Responsáveis', k:'Etapa_Processo',              l:'Etapa do Processo',           t:'select', o:_etapaProc},
   {s:'Gestão e Responsáveis', k:'Relacionamento_Cliente',      l:'Rel. Cliente',                t:'select', o:_rel},
   {s:'Gestão e Responsáveis', k:'Relacionamento_Cliente_EB',   l:'Rel. Cliente EB',             t:'select', o:_rel},
   {s:'Gestão e Responsáveis', k:'Relacionamento_Candidato',    l:'Rel. Candidato',              t:'select', o:_rel},
@@ -160,12 +178,12 @@ const PULSE_FIELDS = [
   {s:'Candidatos e Atração',  k:'Pessoas_Inscritas',           l:'Pessoas Inscritas',           t:'number'},
   {s:'Candidatos e Atração',  k:'Dentro_Perfil',               l:'Dentro do Perfil',            t:'number'},
   {s:'Candidatos e Atração',  k:'Data_Live',                   l:'Data Live',                   t:'date'},
-  {s:'Candidatos e Atração',  k:'Horario_Live',                l:'Horário Live',                t:'text'},
-  {s:'Candidatos e Atração',  k:'_1a_Prospeccao',              l:'1ª Prospecção',               t:'text'},
-  {s:'Candidatos e Atração',  k:'_2a_Prospeccao',              l:'2ª Prospecção',               t:'text'},
-  {s:'Candidatos e Atração',  k:'_3a_Prospeccao',              l:'3ª Prospecção',               t:'text'},
+  {s:'Candidatos e Atração',  k:'Horario_Live',                l:'Horário Live',                t:'date'},
+  {s:'Candidatos e Atração',  k:'_1a_Prospeccao',              l:'1ª Prospecção',               t:'date'},
+  {s:'Candidatos e Atração',  k:'_2a_Prospeccao',              l:'2ª Prospecção',               t:'date'},
+  {s:'Candidatos e Atração',  k:'_3a_Prospeccao',              l:'3ª Prospecção',               t:'date'},
   // ── Assessments e Testes ───────────────────────────────────────────────────
-  {s:'Assessments e Testes',  k:'Assessments_Utilizados',      l:'Assessments Utilizados',      t:'text', w:true},
+  {s:'Assessments e Testes',  k:'Assessments_Utilizados',      l:'Assessments Utilizados',      t:'select', o:_assessments, w:true},
   {s:'Assessments e Testes',  k:'Inicio_Testes',               l:'Início Testes',               t:'date'},
   {s:'Assessments e Testes',  k:'Termino_Testes',              l:'Término Testes',              t:'date'},
   {s:'Assessments e Testes',  k:'Inicio_Ranking',              l:'Início Ranking',              t:'date'},
@@ -183,22 +201,22 @@ const PULSE_FIELDS = [
   // ── Programa ──────────────────────────────────────────────────────────────
   {s:'Programa',              k:'Data_Inicio_Programa',        l:'Início do Programa',          t:'date'},
   {s:'Programa',              k:'Data_Termino_Programa',       l:'Término do Programa',         t:'date'},
-  {s:'Programa',              k:'Duracao_do_programa',         l:'Duração',                     t:'text'},
-  {s:'Programa',              k:'Ha_quanto_tempo_existe_o_programa', l:'Tempo de Existência',   t:'text'},
-  {s:'Programa',              k:'Headcount',                   l:'Headcount',                   t:'number'},
+  {s:'Programa',              k:'Duracao_do_programa',         l:'Duração',                     t:'select', o:_duracao},
+  {s:'Programa',              k:'Ha_quanto_tempo_existe_o_programa', l:'Tempo de Existência',   t:'select', o:_tempo},
+  {s:'Programa',              k:'Headcount',                   l:'Headcount',                   t:'select', o:_headcount},
   {s:'Programa',              k:'Cargo_no_final_do_programa',  l:'Cargo Final',                 t:'text'},
   {s:'Programa',              k:'Pct_efetivacao_estagiarios',  l:'% Efetivação Estagiários',    t:'number'},
   {s:'Programa',              k:'Tem_etapa_presencial',        l:'Tem Etapa Presencial?',       t:'select', o:_yn},
   {s:'Programa',              k:'Empresa_arcou_com_custos',    l:'Empresa Arcou c/ Custos?',    t:'select', o:_yn},
-  {s:'Programa',              k:'Politica_de_custos',          l:'Política de Custos (presencial)', t:'text', w:true},
+  {s:'Programa',              k:'Politica_de_custos',          l:'Política de Custos (presencial)', t:'textarea', w:true},
   {s:'Programa',              k:'Beneficios',                  l:'Benefícios',                  t:'textarea', w:true},
-  {s:'Programa',              k:'Auxilio_mudanca',             l:'Auxílio Mudança',             t:'text', w:true},
+  {s:'Programa',              k:'Auxilio_mudanca',             l:'Auxílio Mudança',             t:'textarea', w:true},
   {s:'Programa',              k:'Trilha_de_Desenvolvimento',   l:'Trilha de Desenvolvimento',   t:'textarea', w:true},
   // ── Pesquisas ─────────────────────────────────────────────────────────────
-  {s:'Pesquisas',             k:'Envio_Pesquisa_Cliente',      l:'Envio Pesquisa Cliente',      t:'date'},
-  {s:'Pesquisas',             k:'Resposta_Pesquisa_Cliente',   l:'Resposta Pesquisa Cliente',   t:'date'},
-  {s:'Pesquisas',             k:'Status_Pesquisa_Cliente',     l:'Status Pesquisa Cliente',     t:'select', o:_stPes},
-  {s:'Pesquisas',             k:'Status_Pesquisa_Candidato',   l:'Status Pesquisa Candidato',   t:'select', o:_stPes},
+  {s:'Pesquisas',             k:'Envio_Pesquisa_Cliente',      l:'Envio Pesquisa Cliente',      t:'select', o:_envioResp},
+  {s:'Pesquisas',             k:'Resposta_Pesquisa_Cliente',   l:'Resposta Pesquisa Cliente',   t:'select', o:_respResp},
+  {s:'Pesquisas',             k:'Status_Pesquisa_Cliente',     l:'Status Pesquisa Cliente',     t:'select', o:['Enviada','Respondida','Pendente','Não enviada']},
+  {s:'Pesquisas',             k:'Status_Pesquisa_Candidato',   l:'Status Pesquisa Candidato',   t:'select', o:['Enviada','Respondida','Pendente','Não enviada']},
   {s:'Pesquisas',             k:'NPS_cliente_1',               l:'NPS Cliente 1',               t:'number'},
   {s:'Pesquisas',             k:'NPS_cliente_2',               l:'NPS Cliente 2',               t:'number'},
   {s:'Pesquisas',             k:'NPS_cliente_3',               l:'NPS Cliente 3',               t:'number'},
@@ -207,14 +225,14 @@ const PULSE_FIELDS = [
   {s:'Nicho e Perfil',        k:'Qual_nicho',                  l:'Qual Nicho?',                 t:'text'},
   {s:'Nicho e Perfil',        k:'Exeriencia_profissional',     l:'Exige Exp. Profissional?',    t:'select', o:_yn},
   {s:'Nicho e Perfil',        k:'Exeperiencia_Qual',           l:'Qual Experiência?',           t:'text'},
-  {s:'Nicho e Perfil',        k:'Experiencia_Duracao',         l:'Duração Experiência',         t:'text'},
+  {s:'Nicho e Perfil',        k:'Experiencia_Duracao',         l:'Duração Experiência',         t:'select', o:_duracaoExp},
   {s:'Nicho e Perfil',        k:'Processo_Afirmativo',         l:'Processo Afirmativo?',        t:'select', o:_yn},
   // ── Diversidade e Inclusão ────────────────────────────────────────────────
-  {s:'Diversidade e Inclusão',k:'Meta_etnico_racial',          l:'Meta Étnico Racial',          t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_feminino',               l:'Meta Feminino',               t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_PcD',                    l:'Meta PcD',                    t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_LGBTQIA',                l:'Meta LGBTQIA+',               t:'text'},
-  {s:'Diversidade e Inclusão',k:'Meta_outro_publico_especifico',l:'Meta Outro Público',          t:'text'},
+  {s:'Diversidade e Inclusão',k:'Meta_etnico_racial',          l:'Meta Étnico Racial',          t:'select', o:_atingiu},
+  {s:'Diversidade e Inclusão',k:'Meta_feminino',               l:'Meta Feminino',               t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_PcD',                    l:'Meta PcD',                    t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_LGBTQIA',                l:'Meta LGBTQIA+',               t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_outro_publico_especifico',l:'Meta Outro Público',          t:'select', o:_atingiu},
   {s:'Diversidade e Inclusão',k:'Pct_meta_etnia',              l:'% Meta Etnia',                t:'number'},
   {s:'Diversidade e Inclusão',k:'Pct_meta_feminino',           l:'% Meta Feminino',             t:'number'},
   {s:'Diversidade e Inclusão',k:'Pct_meta_pcd',                l:'% Meta PcD',                  t:'number'},
@@ -267,7 +285,10 @@ function calPhaseStatus(start, end, today) {
 
 const SP_SELECT      = [
   'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
-  'KA',...HEAD_KEYS,...ANALYST_KEYS,
+  'KA','Quantidade_Vagas_Prevista',
+  'Trimestre_Orcamentario','Periodo','Codigo_Proposta',
+  'Publico','Pedra','Responsavel_Pedra','Tipo_Programa',
+  ...HEAD_KEYS,...ANALYST_KEYS,
   ...PHASES.flatMap(ph=>[
     `Inicio_${ph.key}`,`Fim_${ph.key}`,
     `Analista_${ph.key}_PCT`,
@@ -396,14 +417,22 @@ function parseSPItem(item) {
     pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(raw)||'') : (raw!==undefined&&raw!==null ? String(raw) : '');
   });
   return {
-    id:         String(item.Id||item.indice||'r'+Math.random()),
-    spId:       item.Id||item.id||null,
-    indice:     Number(item.indice)||0,
-    title:      item.Nome_Programa||item.Title||'Sem título',
-    client:     item.Cliente||'',
-    status:     item.Status_Programa||'',
-    ciclo:      item.Ciclo_Orcamentario||'',
-    ka:         item.KA||'',
+    id:           String(item.Id||item.indice||'r'+Math.random()),
+    spId:         item.Id||item.id||null,
+    indice:       Number(item.indice)||0,
+    title:        item.Nome_Programa||item.Title||'Sem título',
+    client:       item.Cliente||'',
+    status:       item.Status_Programa||'',
+    ciclo:        item.Ciclo_Orcamentario||'',
+    ka:           item.KA||'',
+    trimestre:    item.Trimestre_Orcamentario||'',
+    semestre:     item.Periodo||'',               // SP column: Periodo
+    codigoProposta: item.Codigo_Proposta||'',
+    publico:      item.Publico||'',
+    pedra:        item.Pedra||'',
+    respPedra:    item.Responsavel_Pedra||'',
+    tipoProg:     item.Tipo_Programa||'',
+    qtdVagas:     Number(item.Quantidade_Vagas_Prevista)||0,
     head1:      item.Head_1||'',
     head2:      item.Head_2||'',
     head3:      item.Head_3||'',
@@ -418,15 +447,23 @@ function parseSPItem(item) {
 // ─── Build SP PATCH/POST payload from internal project ────────────────────────
 function buildSPPayload(project) {
   const payload = {};
-  if (project.title  !== undefined) payload['Nome_Programa']   = project.title||null;
-  if (project.title  !== undefined) payload['Title']           = project.title||null;
-  if (project.client !== undefined) payload['Cliente']         = project.client||null;
-  if (project.status !== undefined) payload['Status_Programa'] = project.status||null;
-  if (project.ciclo  !== undefined) payload['Ciclo_Orcamentario'] = project.ciclo||null;
-  if (project.ka     !== undefined) payload['KA']     = project.ka||null;
-  if (project.head1  !== undefined) payload['Head_1'] = project.head1||null;
-  if (project.head2  !== undefined) payload['Head_2'] = project.head2||null;
-  if (project.head3  !== undefined) payload['Head_3'] = project.head3||null;
+  if (project.title         !== undefined) payload['Nome_Programa']            = project.title||null;
+  if (project.title         !== undefined) payload['Title']                    = project.title||null;
+  if (project.client        !== undefined) payload['Cliente']                  = project.client||null;
+  if (project.status        !== undefined) payload['Status_Programa']          = project.status||null;
+  if (project.ciclo         !== undefined) payload['Ciclo_Orcamentario']       = project.ciclo||null;
+  if (project.ka            !== undefined) payload['KA']                       = project.ka||null;
+  if (project.trimestre     !== undefined) payload['Trimestre_Orcamentario']   = project.trimestre||null;
+  if (project.semestre      !== undefined) payload['Periodo']                  = project.semestre||null;
+  if (project.codigoProposta!== undefined) payload['Codigo_Proposta']          = project.codigoProposta||null;
+  if (project.publico       !== undefined) payload['Publico']                  = project.publico||null;
+  if (project.pedra         !== undefined) payload['Pedra']                    = project.pedra||null;
+  if (project.respPedra     !== undefined) payload['Responsavel_Pedra']        = project.respPedra||null;
+  if (project.tipoProg      !== undefined) payload['Tipo_Programa']            = project.tipoProg||null;
+  if (project.qtdVagas      !== undefined && project.qtdVagas>0) payload['Quantidade_Vagas_Prevista'] = project.qtdVagas;
+  if (project.head1         !== undefined) payload['Head_1']                   = project.head1||null;
+  if (project.head2         !== undefined) payload['Head_2']                   = project.head2||null;
+  if (project.head3         !== undefined) payload['Head_3']                   = project.head3||null;
   for (let i=0; i<MAX_ANALYSTS; i++) {
     payload[`Analista_${i+1}`] = project.analysts[i]||null;
   }
@@ -817,6 +854,14 @@ async function fetchHeadMembers(token, siteUrl) {
     return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
   } catch { return []; }
 }
+async function fetchKAMembers(token, siteUrl) {
+  try {
+    const base = _spListBase(siteUrl, SP_TEAM_LIST);
+    const url  = `${base}/items?$select=Title,Classificacao&$filter=Classificacao eq 'KA'&$top=500`;
+    const json = await spFetch(token, url);
+    return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
+  } catch { return []; }
+}
 // Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
 // 1 ou 2 → acesso completo (Gestão + Pulse). 3+ → somente Pulse. 99 = não encontrado/erro.
 // Busca sem $select para evitar problemas com nomes internos de coluna no SP.
@@ -1155,6 +1200,7 @@ function App() {
   const [extraAllocations, setExtraAllocations] = useState([]);
   const [vacations,        setVacations]        = useState([]);
   const [headMembers,      setHeadMembers]      = useState([]);
+  const [kaMembers,        setKaMembers]        = useState([]);
   const [entityView,       setEntityView]       = useState('analyst'); // 'analyst' | 'head'
   const [spChoices,        setSpChoices]        = useState({});        // campos Choice do SP
 
@@ -1209,17 +1255,19 @@ function App() {
       // fetchHeadPctCols PRIMEIRO — garante que HEAD_PCT_COLS está correto
       // antes de fetchSPList chamar parseSPItem (evita race condition)
       await fetchHeadPctCols(token, SP_SITE_URL, SP_LIST_NAME);
-      const [spItems, dist, team, hteam, choices] = await Promise.all([
+      const [spItems, dist, team, hteam, kateam, choices] = await Promise.all([
         fetchSPList(token, SP_SITE_URL, SP_LIST_NAME),
         fetchDistFile(token, SP_SITE_URL),
         fetchTeamMembers(token, SP_SITE_URL),
         fetchHeadMembers(token, SP_SITE_URL),
+        fetchKAMembers(token, SP_SITE_URL),
         fetchSPChoices(token, SP_SITE_URL, SP_LIST_NAME),
       ]);
       setSpChoices(choices||{});
       setDistData(dist);
       setTeamMembers(team);
       setHeadMembers(hteam);
+      setKaMembers(kateam);
       setProjects(mergeProjectsWithDist(spItems, dist));
       setExtraAllocations(dist.extraAllocations||[]);  // shared via dist.json in SP
       setVacations(dist.vacations||[]);               // shared via dist.json in SP
@@ -1652,6 +1700,7 @@ function App() {
           project={showEdit==='new'?null:showEdit}
           allAnalysts={analysts}
           allHeads={heads}
+          allKAs={kaMembers}
           onSave={saveProject}
           onClose={()=>setShowEdit(null)}
           saving={saving}
@@ -2479,16 +2528,39 @@ function MoskitPickerModal({clientId, tenantId, onSelect, onClose}) {
 }
 
 // ─── Project Modal (redesigned — per-analyst % per phase) ─────────────────────
-function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, isSpConnected, clientId, tenantId, spChoices}) {
+function ProjectModal({project, allAnalysts, allHeads, allKAs, onSave, onClose, saving, isSpConnected, clientId, tenantId, spChoices}) {
   const isExistingSP = !!(project?.spId);
   const isExistingLocal = project && !project?.spId;
   const [syncToSP, setSyncToSP] = useState(isExistingSP ? true : (isSpConnected && !isExistingLocal));
 
-  const [showMoskit, setShowMoskit] = useState(false);
-  const [title,    setTitle]    = useState(project?.title||'');
-  const [client,   setClient]   = useState(project?.client||'');
-  const [status,   setStatus]   = useState(project?.status||'');
-  const [ciclo,    setCiclo]    = useState(project?.ciclo||'');
+  const [showMoskit,  setShowMoskit]  = useState(false);
+  const [title,       setTitle]       = useState(project?.title||'');
+  const [client,      setClient]      = useState(project?.client||'');
+  const [status,      setStatus]      = useState(project?.status||'');
+  const [ciclo,       setCiclo]       = useState(project?.ciclo||'');
+  // Campos adicionais do SP
+  const [ka,          setKa]          = useState(project?.ka||'');
+  const [trimestre,   setTrimestre]   = useState(project?.trimestre||'');
+  const [semestre,    setSemestre]    = useState(project?.semestre||'');
+  const [codigoProposta, setCodigoProposta] = useState(project?.codigoProposta||'');
+  const [publico,     setPublico]     = useState(project?.publico||'');
+  const [pedra,       setPedra]       = useState(project?.pedra||'');
+  const [respPedra,   setRespPedra]   = useState(project?.respPedra||'');
+  const [tipoProg,    setTipoProg]    = useState(project?.tipoProg||'');
+  const [qtdVagas,    setQtdVagas]    = useState(project?.qtdVagas||'');
+  // Moskit clients (lazy-loaded)
+  const [moskitClients, setMoskitClients] = useState([]);
+  useEffect(()=>{
+    if (!clientId||!tenantId) return;
+    fetchMoskitCSV(clientId, tenantId).then(text=>{
+      const parsed = window.Papa?.parse(text,{header:true,skipEmptyLines:true});
+      if (!parsed?.data) return;
+      const col = Object.keys(parsed.data[0]||{}).find(k=>k.toLowerCase().includes('empresa'));
+      if (!col) return;
+      const unique=[...new Set(parsed.data.map(r=>(r[col]||'').trim()).filter(Boolean))].sort();
+      setMoskitClients(unique);
+    }).catch(()=>{});
+  },[clientId, tenantId]);
 
   // ── Analysts state ──
   const [analysts, setAnalysts] = useState(project?.analysts ? [...project.analysts] : []);
@@ -2571,19 +2643,28 @@ function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, 
     });
     const source = isExistingSP ? 'sharepoint' : (syncToSP&&isSpConnected ? 'sharepoint' : 'local');
     onSave({
-      id:         project?.id||'proj_'+Date.now(),
-      spId:       project?.spId||null,
-      title:      title.trim(),
-      client:     client.trim(),
+      id:             project?.id||'proj_'+Date.now(),
+      spId:           project?.spId||null,
+      title:          title.trim(),
+      client:         client.trim(),
       status,
-      ciclo:      ciclo.trim(),
+      ciclo:          ciclo.trim(),
+      ka:             ka.trim(),
+      trimestre,
+      semestre,
+      codigoProposta: codigoProposta.trim(),
+      publico,
+      pedra,
+      respPedra,
+      tipoProg,
+      qtdVagas:       Number(qtdVagas)||0,
       source,
-      analysts:   filteredA,
-      phases:     filteredPhases,
-      head1:      filteredH[0]||null,
-      head2:      filteredH[1]||null,
-      head3:      filteredH[2]||null,
-      headPhases: filteredHeadPhases,
+      analysts:       filteredA,
+      phases:         filteredPhases,
+      head1:          filteredH[0]||null,
+      head2:          filteredH[1]||null,
+      head3:          filteredH[2]||null,
+      headPhases:     filteredHeadPhases,
     });
   }
 
@@ -2626,11 +2707,18 @@ function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, 
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"
                   placeholder="Ex: BASF — Trainee 2026"/>
               </div>
+              {/* Cliente com datalist do Moskit */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Cliente</label>
                 <input value={client} onChange={e=>setClient(e.target.value)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"/>
+                  list="clientDatalist"
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"
+                  placeholder="Empresa do Moskit"/>
+                <datalist id="clientDatalist">
+                  {moskitClients.map(c=><option key={c} value={c}/>)}
+                </datalist>
               </div>
+              {/* Status */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Status</label>
                 <select value={status} onChange={e=>setStatus(e.target.value)}
@@ -2641,11 +2729,91 @@ function ProjectModal({project, allAnalysts, allHeads, onSave, onClose, saving, 
                   ))}
                 </select>
               </div>
-              <div className="sm:col-span-2">
+              {/* Ciclo → select com opções do SP */}
+              <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Ciclo Orçamentário</label>
-                <input value={ciclo} onChange={e=>setCiclo(e.target.value)}
+                <select value={ciclo} onChange={e=>setCiclo(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Ciclo_Orcamentario||[]).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Trimestre */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Trimestre Orç.</label>
+                <select value={trimestre} onChange={e=>setTrimestre(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Trimestre_Orcamentario||['Q1','Q2','Q3','Q4']).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Semestre */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Semestre Orç.</label>
+                <select value={semestre} onChange={e=>setSemestre(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Periodo||['1S','2S']).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Código Proposta */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Código Proposta</label>
+                <input value={codigoProposta} onChange={e=>setCodigoProposta(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"/>
+              </div>
+              {/* Público */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Público</label>
+                <select value={publico} onChange={e=>setPublico(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Publico||_publico).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Pedra */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Pedra</label>
+                <select value={pedra} onChange={e=>setPedra(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Pedra||_pedra).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Responsável Pedra */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Responsável Pedra</label>
+                <select value={respPedra} onChange={e=>setRespPedra(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Responsavel_Pedra||_respPedra).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Tipo de Programa */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Tipo de Programa</label>
+                <select value={tipoProg} onChange={e=>setTipoProg(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200">
+                  <option value="">—</option>
+                  {(spChoices?.Tipo_Programa||_tipoProg).map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              {/* Quantidade de Vagas */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Qtd. Vagas Previstas</label>
+                <input type="number" min="0" value={qtdVagas} onChange={e=>setQtdVagas(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"/>
+              </div>
+              {/* KA com datalist da List_Pulse_Equipe */}
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">KA</label>
+                <input value={ka} onChange={e=>setKa(e.target.value)}
+                  list="kaDatalist"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"
-                  placeholder="Ex: 2026"/>
+                  placeholder="Nome do KA"/>
+                <datalist id="kaDatalist">
+                  {(allKAs||[]).map(k=><option key={k} value={k}/>)}
+                </datalist>
               </div>
             </div>
           </section>
