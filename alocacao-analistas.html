@@ -373,17 +373,19 @@ function parseSPItem(item) {
       pcts:  analysts.map(()=>perEach),   // equal split — user can adjust
     };
   });
-  // Head phases — same structure; total comes from Consultor_Head_${ph.key}_PCT
+  // Head phases — total lido do SP; distribuição per-head restaurada pelo mergeProjectsWithDist
   const projHeadNames = HEAD_KEYS.map(k=>(item[k]||'').trim()).filter(h=>h&&h!==PLACEHOLDER);
   const nh = Math.max(projHeadNames.length, 1);
   const headPhases = {};
   PHASES.forEach(ph=>{
-    const tot     = parsePct(item[HEAD_PCT_COLS[ph.key]]);
+    // Tenta o nome mapeado e o default como fallback para máxima robustez
+    const colName = HEAD_PCT_COLS[ph.key] || HEAD_PCT_COLS_DEFAULT[ph.key];
+    const tot     = parsePct(item[colName]) || parsePct(item[HEAD_PCT_COLS_DEFAULT[ph.key]]);
     const perEach = tot>0 ? Math.round(tot/nh) : 0;
     headPhases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
       end:   item[`Fim_${ph.key}`]||null,
-      pcts:  projHeadNames.map(()=>perEach),  // equal split — user can adjust
+      pcts:  projHeadNames.map(()=>perEach),  // split igual — mergeProjectsWithDist restaura
     };
   });
   // Populate pulseData — lê pelo StaticName real do SP (override > f.k original)
@@ -952,15 +954,18 @@ function mergeProjectsWithDist(spItems, dist) {
     });
 
     // Restore head per-phase pcts from dist.json (headDistributions)
+    // Usa storedPcts sempre que existirem (sem check de comprimento exato —
+    // diferente dos analistas, a contagem de heads pode variar levemente).
     const savedHead = dist.headDistributions?.[String(proj.spId)];
     const headPhases={};
     PHASES.forEach(ph=>{
       const base       = proj.headPhases[ph.key];
       const storedPcts = savedHead?.[ph.key];
-      headPhases[ph.key] = {
-        ...base,
-        pcts: storedPcts&&storedPcts.length===projHeadNames.length ? storedPcts : base.pcts,
-      };
+      // Usa dist.json se tiver dados; adapta o tamanho ao número atual de heads
+      const bestPcts = (storedPcts && storedPcts.some(p=>p>0))
+        ? storedPcts.slice(0, Math.max(projHeadNames.length, 1))
+        : base.pcts;
+      headPhases[ph.key] = { ...base, pcts: bestPcts };
     });
 
     return {...proj, phases, headPhases};
