@@ -57,6 +57,7 @@ const APP_CONFIG = {
 const PHASES = [
   { key:'Planejamento',    label:'Planejamento',    group:'Planejamento' },
   { key:'Inscricao',       label:'Inscrições',       group:'Inscrições' },
+  { key:'Ranking',         label:'Ranking',          group:'Ranking' },
   { key:'Etapa_1',         label:'Etapa 1',          group:'Etapas de Avaliação' },
   { key:'Etapa_2',         label:'Etapa 2',          group:'Etapas de Avaliação' },
   { key:'Etapa_3',         label:'Etapa 3',          group:'Etapas de Avaliação' },
@@ -64,6 +65,8 @@ const PHASES = [
   { key:'Etapa_5',         label:'Etapa 5',          group:'Etapas de Avaliação' },
   { key:'Relatorio_Final', label:'Relatório Final',  group:'Relatório Final' },
 ];
+// Colunas SP que diferem do padrão Fim_${key} para a data de término da fase
+const PHASE_END_COLS = { Ranking: 'Termino_Ranking' };
 const MAX_ANALYSTS   = 8;
 const ANALYST_KEYS   = Array.from({length:MAX_ANALYSTS},(_,i)=>`Analista_${i+1}`);
 const SP_SITE_URL    = 'https://ciadetalentos-my.sharepoint.com/personal/automacoes_fpa_ciadetalentos_com';
@@ -163,7 +166,7 @@ const PULSE_FIELDS = [
   {s:'Gestão e Responsáveis', k:'Relacionamento_Candidato',    l:'Rel. Candidato',              t:'select', o:_rel},
   {s:'Gestão e Responsáveis', k:'Bitrix24_Iniciado',           l:'Bitrix24 Iniciado',           t:'select', o:_yn},
   // ── Acompanhamento ─────────────────────────────────────────────────────────
-  {s:'Acompanhamento',        k:'Farol_Vermelho',              l:'Farol Vermelho',              t:'select', o:_yn},
+  {s:'Acompanhamento',        k:'Farol_Vermelho',              l:'Farol Vermelho',              t:'select', o:['-','Vermelho','Amarelo'], fixedOptions:true},
   {s:'Acompanhamento',        k:'Motivos_Celebrar',            l:'Motivos p/ Celebrar',         t:'textarea', w:true},
   {s:'Acompanhamento',        k:'Devemos_Cuidar',              l:'Devemos Cuidar',              t:'textarea', w:true},
   {s:'Acompanhamento',        k:'Resumo_Semanal',              l:'Resumo Semanal',              t:'textarea', w:true},
@@ -183,11 +186,10 @@ const PULSE_FIELDS = [
   {s:'Candidatos e Atração',  k:'_2a_Prospeccao',              l:'2ª Prospecção',               t:'date'},
   {s:'Candidatos e Atração',  k:'_3a_Prospeccao',              l:'3ª Prospecção',               t:'date'},
   // ── Assessments e Testes ───────────────────────────────────────────────────
-  {s:'Assessments e Testes',  k:'Assessments_Utilizados',      l:'Assessments Utilizados',      t:'select', o:_assessments, w:true},
+  {s:'Assessments e Testes',  k:'Assessments_Utilizados',      l:'Assessments Utilizados',      t:'multicheck', o:_assessments, w:true},
   {s:'Assessments e Testes',  k:'Inicio_Testes',               l:'Início Testes',               t:'date'},
   {s:'Assessments e Testes',  k:'Termino_Testes',              l:'Término Testes',              t:'date'},
-  {s:'Assessments e Testes',  k:'Inicio_Ranking',              l:'Início Ranking',              t:'date'},
-  {s:'Assessments e Testes',  k:'Termino_Ranking',             l:'Término Ranking',             t:'date'},
+  // Inicio_Ranking/Termino_Ranking agora são datas da fase Ranking (geridas por PHASES)
   // ── Etapas de Avaliação 1–5 ───────────────────────────────────────────────
   ...[1,2,3,4,5].flatMap(n=>[
     {s:'Etapas de Avaliação', k:`Etapa${n}_Tipo`,              l:'Tipo',                        t:'select', o:_tpEtapa, etapa:n},
@@ -227,16 +229,16 @@ const PULSE_FIELDS = [
   {s:'Nicho e Perfil',        k:'Exeperiencia_Qual',           l:'Qual Experiência?',           t:'text'},
   {s:'Nicho e Perfil',        k:'Experiencia_Duracao',         l:'Duração Experiência',         t:'select', o:_duracaoExp},
   {s:'Nicho e Perfil',        k:'Processo_Afirmativo',         l:'Processo Afirmativo?',        t:'select', o:_yn},
-  // ── Diversidade e Inclusão ────────────────────────────────────────────────
+  // ── Diversidade e Inclusão — pares Meta / % Meta ──────────────────────────
   {s:'Diversidade e Inclusão',k:'Meta_etnico_racial',          l:'Meta Étnico Racial',          t:'select', o:_atingiu},
-  {s:'Diversidade e Inclusão',k:'Meta_feminino',               l:'Meta Feminino',               t:'number'},
-  {s:'Diversidade e Inclusão',k:'Meta_PcD',                    l:'Meta PcD',                    t:'number'},
-  {s:'Diversidade e Inclusão',k:'Meta_LGBTQIA',                l:'Meta LGBTQIA+',               t:'number'},
-  {s:'Diversidade e Inclusão',k:'Meta_outro_publico_especifico',l:'Meta Outro Público',          t:'select', o:_atingiu},
   {s:'Diversidade e Inclusão',k:'Pct_meta_etnia',              l:'% Meta Etnia',                t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_feminino',               l:'Meta Feminino',               t:'number'},
   {s:'Diversidade e Inclusão',k:'Pct_meta_feminino',           l:'% Meta Feminino',             t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_PcD',                    l:'Meta PcD',                    t:'number'},
   {s:'Diversidade e Inclusão',k:'Pct_meta_pcd',                l:'% Meta PcD',                  t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_LGBTQIA',                l:'Meta LGBTQIA+',               t:'number'},
   {s:'Diversidade e Inclusão',k:'Pct_meta_LGBTQIA',            l:'% Meta LGBTQIA+',             t:'number'},
+  {s:'Diversidade e Inclusão',k:'Meta_outro_publico_especifico',l:'Meta Outro Público',          t:'select', o:_atingiu},
   {s:'Diversidade e Inclusão',k:'Pct_meta_outro_publico',      l:'% Meta Outro Público',        t:'number'},
   {s:'Diversidade e Inclusão',k:'Acoes_para_metas',            l:'Ações p/ Metas',              t:'textarea', w:true},
   {s:'Diversidade e Inclusão',k:'Parceiro_diversidade',        l:'Parceiro Diversidade',        t:'textarea', w:true},
@@ -250,6 +252,7 @@ const PULSE_SECTIONS = [...new Set(PULSE_FIELDS.map(f=>f.s))];
 const CAL_COLORS = {
   Planejamento:    '#6366f1',
   Inscricao:       '#8b5cf6',
+  Ranking:         '#f97316',
   Etapa_1:         '#0ea5e9',
   Etapa_2:         '#06b6d4',
   Etapa_3:         '#10b981',
@@ -290,7 +293,8 @@ const SP_SELECT      = [
   'Publico','Pedra','Responsavel_Pedra','Tipo_Programa',
   ...HEAD_KEYS,...ANALYST_KEYS,
   ...PHASES.flatMap(ph=>[
-    `Inicio_${ph.key}`,`Fim_${ph.key}`,
+    `Inicio_${ph.key}`,
+    PHASE_END_COLS[ph.key]||`Fim_${ph.key}`,
     `Analista_${ph.key}_PCT`,
     HEAD_PCT_COLS[ph.key],
   ].filter(Boolean)),
@@ -390,8 +394,8 @@ function parseSPItem(item) {
     const perEach  = tot>0 ? Math.round(tot/n) : 0;
     phases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
-      end:   item[`Fim_${ph.key}`]||null,
-      pcts:  analysts.map(()=>perEach),   // equal split — user can adjust
+      end:   item[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`]||null,
+      pcts:  analysts.map(()=>perEach),
     };
   });
   // Head phases — total lido do SP; distribuição per-head restaurada pelo mergeProjectsWithDist
@@ -405,8 +409,8 @@ function parseSPItem(item) {
     const perEach = tot>0 ? Math.round(tot/nh) : 0;
     headPhases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
-      end:   item[`Fim_${ph.key}`]||null,
-      pcts:  projHeadNames.map(()=>perEach),  // split igual — mergeProjectsWithDist restaura
+      end:   item[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`]||null,
+      pcts:  projHeadNames.map(()=>perEach),
     };
   });
   // Populate pulseData — lê pelo StaticName real do SP (override > f.k original)
@@ -472,11 +476,11 @@ function buildSPPayload(project) {
     const headPhase = project.headPhases?.[ph.key]||{};
     const total     = totalPhasePct(phase);
     const headTotal = totalPhasePct(headPhase);
-    payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
-    payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
-    payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+    payload[`Inicio_${ph.key}`]                        = phase.start ? fmtDateForSP(phase.start) : null;
+    payload[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`]  = phase.end   ? fmtDateForSP(phase.end)   : null;
+    payload[`Analista_${ph.key}_PCT`]                 = pctToSP(total);
     const headCol = HEAD_PCT_COLS[ph.key];
-    if (headCol) payload[headCol]     = pctToSP(headTotal);
+    if (headCol) payload[headCol]                     = pctToSP(headTotal);
   });
   return payload;
 }
@@ -1144,10 +1148,10 @@ async function fetchSPChoices(token, siteUrl, listName) {
         _spUnresolved.push({k:f.k, l:f.l, s:f.s});
       }
 
-      if (f.t==='select') {
+      if ((f.t==='select'||f.t==='multicheck') && !f.fixedOptions) {
         const resolved=_spFieldMap[f.k]||f.k;
-        if (choiceMap[resolved]) f.o=choiceMap[resolved];
-        else if (choiceMap[f.k]) f.o=choiceMap[f.k];
+        const opts=choiceMap[resolved]||choiceMap[f.k];
+        if (opts) f.o=opts.filter(o=>!/^Escolha\s*\d+$/i.test(o.trim()));
       }
     });
 
@@ -1231,8 +1235,10 @@ function App() {
   const headAllocations = useMemo(()=>computeHeadAllocations(filteredProjects),[filteredProjects]);
   // Analyst list: SP team (Analistas) or fallback from allocation keys
   const analysts        = useMemo(()=>{
-    if (teamMembers.length>0) return teamMembers;
-    return Object.keys(allocations).sort();
+    // Sempre inclui todos que aparecem nas alocações (ex: "Alocar") mesmo que não estejam na lista oficial
+    const official = teamMembers.length>0 ? teamMembers : [];
+    const fromAlloc = Object.keys(allocations);
+    return [...new Set([...official,...fromAlloc])].sort();
   },[teamMembers, allocations]);
   // Head list: SP team (Consultores) or fallback from project head fields
   const heads           = useMemo(()=>{
@@ -1465,9 +1471,12 @@ function App() {
             const d=fmtDateForSP(v); if(d) payload[spKey]=d;
           } else if (f.t==='number') {
             const n=parseFloat(String(v).replace(',','.'));
-            if (!isNaN(n)) payload[spKey]=n; // envia número, não string
+            if (!isNaN(n)) payload[spKey]=n;
+          } else if (f.t==='multicheck') {
+            const vals=v.split(',').map(x=>x.trim()).filter(Boolean);
+            if (vals.length>0) payload[spKey]={results:vals}; // SP MultiChoice format
           } else {
-            payload[spKey] = v; // text, textarea, select → string
+            payload[spKey]=v;
           }
         });
       }
@@ -1479,11 +1488,11 @@ function App() {
         const headPhase = project.headPhases?.[ph.key]||{};
         const total     = totalPhasePct(phase);
         const headTotal = totalPhasePct(headPhase);
-        payload[`Inicio_${ph.key}`]       = phase.start ? fmtDateForSP(phase.start) : null;
-        payload[`Fim_${ph.key}`]          = phase.end   ? fmtDateForSP(phase.end)   : null;
-        payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+        payload[`Inicio_${ph.key}`]                       = phase.start ? fmtDateForSP(phase.start) : null;
+        payload[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`] = phase.end   ? fmtDateForSP(phase.end)   : null;
+        payload[`Analista_${ph.key}_PCT`]                = pctToSP(total);
         const headCol = HEAD_PCT_COLS[ph.key];
-        if (headCol) payload[headCol]     = pctToSP(headTotal);
+        if (headCol) payload[headCol]                    = pctToSP(headTotal);
       });
       await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
       // Usa distDataRef.current para garantir que férias/extras salvos antes não sejam perdidos
@@ -1619,6 +1628,7 @@ function App() {
           projects={projects}
           ciclos={ciclos}
           allAnalysts={analysts}
+          allKAs={kaMembers}
           onSave={savePulse}
           saving={saving}
           token={authState.token}
@@ -2283,13 +2293,18 @@ function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAna
 
 // ─── Projects View ────────────────────────────────────────────────────────────
 function ProjectsView({projects,onEdit,onNew,getSuggestions,onAddAnalyst}) {
-  const [search,  setSearch]  = useState('');
-  const [showSug, setShowSug] = useState(null);
+  const [search,    setSearch]    = useState('');
+  const [gscFilter, setGscFilter] = useState(''); // '' = todos | 'com' = com GSC | 'sem' = sem GSC
+  const [showSug,   setShowSug]   = useState(null);
 
-  const filtered = projects.filter(p=>
-    p.title.toLowerCase().includes(search.toLowerCase())||
-    p.client.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = projects.filter(p=>{
+    const matchSearch = p.title.toLowerCase().includes(search.toLowerCase())||
+      p.client.toLowerCase().includes(search.toLowerCase());
+    const matchGsc = gscFilter===''||
+      (gscFilter==='com' && p.ka)||
+      (gscFilter==='sem' && !p.ka);
+    return matchSearch && matchGsc;
+  });
 
   return (
     <div className="fade-in mt-4 space-y-4">
@@ -2297,6 +2312,13 @@ function ProjectsView({projects,onEdit,onNew,getSuggestions,onAddAnalyst}) {
         <h2 className="text-lg font-bold text-slate-800">Projetos</h2>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar projeto..."
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-48 focus:ring-2 focus:ring-indigo-200"/>
+        {/* Filtro GSC */}
+        <select value={gscFilter} onChange={e=>setGscFilter(e.target.value)}
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-indigo-200">
+          <option value="">GSC: Todos</option>
+          <option value="com">Com GSC</option>
+          <option value="sem">Sem GSC</option>
+        </select>
         <button onClick={onNew}
           className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg font-medium flex items-center gap-1.5">
           + Novo Projeto
@@ -2806,11 +2828,11 @@ function ProjectModal({project, allAnalysts, allHeads, allKAs, onSave, onClose, 
               </div>
               {/* KA com datalist da List_Pulse_Equipe */}
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">KA</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">GSC</label>
                 <input value={ka} onChange={e=>setKa(e.target.value)}
                   list="kaDatalist"
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-200"
-                  placeholder="Nome do KA"/>
+                  placeholder="Nome do GSC"/>
                 <datalist id="kaDatalist">
                   {(allKAs||[]).map(k=><option key={k} value={k}/>)}
                 </datalist>
@@ -3454,7 +3476,7 @@ async function fetchFieldInspection(token, siteUrl, listName) {
 }
 
 // ─── Pulse View ───────────────────────────────────────────────────────────────
-function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoices}) {
+function PulseView({projects, ciclos, allAnalysts, allKAs, onSave, saving, token, spChoices}) {
   const [filters,     setFilters]     = useState({ciclo:'', analista:'', head:'', ka:'', client:'', nome:''});
   const [editProject,   setEditProject]   = useState(null);
   const [editLoading,   setEditLoading]   = useState(false);
@@ -3499,7 +3521,14 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
       PULSE_FIELDS.forEach(f=>{
         const spKey = _spFieldMap[f.k] && _spFieldMap[f.k]!=='__nonexistent__' ? _spFieldMap[f.k] : f.k;
         const v = raw[spKey]!==undefined ? raw[spKey] : raw[f.k];
-        pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(v)||'') : (v!==undefined&&v!==null ? String(v) : '');
+        if (f.t==='multicheck') {
+          // MultiChoice returns {results:[...]} or a string
+          if (v && typeof v==='object' && v.results) pulseData[f.k]=v.results.join(',');
+          else if (Array.isArray(v)) pulseData[f.k]=v.join(',');
+          else pulseData[f.k]=v?String(v):'';
+        } else {
+          pulseData[f.k] = (f.t==='date') ? (fmtDateForInput(v)||'') : (v!==undefined&&v!==null ? String(v) : '');
+        }
       });
       setEditProject({...proj, pulseData});
     } catch(e) {
@@ -3596,7 +3625,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
           {[
             {key:'nome',     label:'Nome do Processo'},
             {key:'client',   label:'Cliente'},
-            {key:'ka',       label:'KA'},
+            {key:'ka',       label:'GSC'},
             {key:'head',     label:'Head (1/2/3)'},
             {key:'analista', label:'Analista'},
           ].map(f=>(
@@ -3626,7 +3655,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Cliente</th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Status</th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Ciclo</th>
-              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">KA</th>
+              <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">GSC</th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 1</th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 2</th>
               <th className="px-3 py-2.5 text-left font-semibold text-slate-500 whitespace-nowrap">Head 3</th>
@@ -3676,6 +3705,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
         <PulseEditModal
           project={editProject}
           allAnalysts={allAnalysts}
+          allKAs={allKAs}
           onSave={handleSave}
           onClose={()=>setEditProject(null)}
           saving={saving}
@@ -3687,7 +3717,7 @@ function PulseView({projects, ciclos, allAnalysts, onSave, saving, token, spChoi
 }
 
 // ─── Pulse Edit Modal (all List_Pulse fields, collapsible sections) ───────────
-function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoices}) {
+function PulseEditModal({project, allAnalysts, allKAs, onSave, onClose, saving, spChoices}) {
   // Core fields
   const [title,    setTitle]    = useState(project?.title||'');
   const [client,   setClient]   = useState(project?.client||'');
@@ -3754,6 +3784,25 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoice
         {(f.o||[]).map(op=><option key={op} value={op}>{op}</option>)}
       </select>
     );
+    if (f.t==='multicheck') {
+      const selected=v.split(',').map(x=>x.trim()).filter(Boolean);
+      return (
+        <div className="flex flex-wrap gap-2 pt-1">
+          {(f.o||[]).map(opt=>{
+            const checked=selected.includes(opt);
+            return (
+              <label key={opt} className={`flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-lg border text-xs transition ${checked?'bg-indigo-50 border-indigo-300 text-indigo-700':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                <input type="checkbox" checked={checked} onChange={e=>{
+                  const next=e.target.checked?[...selected,opt]:selected.filter(s=>s!==opt);
+                  updatePulse(f.k,next.join(','));
+                }} className="accent-indigo-600"/>
+                {opt}
+              </label>
+            );
+          })}
+        </div>
+      );
+    }
     if (f.t==='textarea') return <textarea value={v} onChange={e=>updatePulse(f.k,e.target.value)} rows={3} className={cls+' resize-none'}/>;
     if (f.t==='date') return <input type="date" value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}/>;
     if (f.t==='number') return <input type="number" value={v} onChange={e=>updatePulse(f.k,e.target.value)} className={cls}/>;
@@ -3867,8 +3916,10 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoice
             </div>
             {!collapsed['Gestão e Responsáveis']&&(
               <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label className="block text-xs font-medium text-slate-600 mb-1">KA</label>
-                  <input value={ka} onChange={e=>setKa(e.target.value)} className={cls} placeholder="Nome do KA"/></div>
+                <div><label className="block text-xs font-medium text-slate-600 mb-1">GSC</label>
+                  <input value={ka} onChange={e=>setKa(e.target.value)} list="pulseKADL" className={cls} placeholder="Nome do GSC"/>
+                  <datalist id="pulseKADL">{(allKAs||[]).map(k=><option key={k} value={k}/>)}</datalist>
+                </div>
                 <div><label className="block text-xs font-medium text-slate-600 mb-1">Head 1</label>
                   <input value={head1} onChange={e=>setHead1(e.target.value)} className={cls}/></div>
                 <div><label className="block text-xs font-medium text-slate-600 mb-1">Head 2</label>
@@ -3933,72 +3984,32 @@ function PulseEditModal({project, allAnalysts, onSave, onClose, saving, spChoice
             )}
           </section>
 
-          {/* ── Analistas e Fases ── */}
+          {/* ── Analistas (somente nomes — percentuais/datas geridos em Gestão) ── */}
           <section className="border border-slate-200 rounded-xl overflow-hidden">
             <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
-              <SecHeader id="Analistas e Fases" label="Analistas e Fases (Alocação)" icon="📊"/>
+              <SecHeader id="Analistas e Fases" label="Analistas do Processo" icon="👤"/>
             </div>
             {!collapsed['Analistas e Fases']&&(
-              <div className="px-4 py-4 space-y-4">
-                {/* Analistas */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Analistas</p>
-                    <button onClick={addAnalyst} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition">
-                      + Adicionar
-                    </button>
-                  </div>
-                  {analysts.length===0
-                    ? <p className="text-slate-400 text-sm italic">Nenhum analista adicionado.</p>
-                    : <div className="space-y-2">
-                        {analysts.map((a,idx)=>(
-                          <div key={idx} className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400 w-20 shrink-0">Analista {idx+1}</span>
-                            <input value={a} onChange={e=>updAnalystName(idx,e.target.value)} list="pulseAnalystDL"
-                              className="flex-1 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-200"/>
-                            <button onClick={()=>removeAnalyst(idx)} className="w-7 h-7 flex items-center justify-center text-slate-300 hover:text-red-500 rounded-full text-lg shrink-0">×</button>
-                          </div>
-                        ))}
-                      </div>
-                  }
-                  <datalist id="pulseAnalystDL">{allAnalysts.map(a=><option key={a} value={a}/>)}</datalist>
+              <div className="px-4 py-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-slate-500">Analistas alocados neste processo</p>
+                  <button onClick={addAnalyst} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition">
+                    + Adicionar
+                  </button>
                 </div>
-                {/* Fases */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Fases e %</p>
-                  {PHASES.map(ph=>{
-                    const phase=phases[ph.key]; const total=totalPhasePct(phase);
-                    return (
-                      <div key={ph.key} className="border border-slate-200 rounded-xl overflow-hidden">
-                        <div className="bg-slate-50 px-4 py-2 flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold text-slate-700 w-32 shrink-0">{ph.label}</span>
-                          <div className="flex items-center gap-1.5">
-                            <input type="date" value={phase.start} onChange={e=>updPhaseField(ph.key,'start',e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-300"/>
-                            <span className="text-slate-300 text-xs">→</span>
-                            <input type="date" value={phase.end} onChange={e=>updPhaseField(ph.key,'end',e.target.value)}
-                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-300"/>
-                          </div>
-                          {total>0&&<span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${total>100?'bg-red-100 text-red-700':total>90?'bg-yellow-100 text-yellow-700':'bg-green-100 text-green-700'}`}>Total: {Math.round(total)}%</span>}
+                {analysts.length===0
+                  ? <p className="text-slate-400 text-sm italic">Nenhum analista adicionado.</p>
+                  : <div className="flex flex-wrap gap-2">
+                      {analysts.map((a,idx)=>(
+                        <div key={idx} className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
+                          <span className="text-sm font-medium text-indigo-800">{a||`Analista ${idx+1}`}</span>
+                          <button onClick={()=>removeAnalyst(idx)} className="text-indigo-300 hover:text-red-500 text-base leading-none ml-1">×</button>
                         </div>
-                        {analysts.length>0
-                          ? <div className="divide-y divide-slate-50">
-                              {analysts.map((a,idx)=>(
-                                <div key={idx} className="flex items-center gap-3 px-4 py-2">
-                                  <span className="text-xs text-slate-500 flex-1 truncate">{a||`Analista ${idx+1}`}</span>
-                                  <input type="number" min={0} max={200} step={5}
-                                    value={phase.pcts[idx]!==undefined?phase.pcts[idx]:''} onChange={e=>updPct(ph.key,idx,e.target.value)}
-                                    className="border border-slate-200 rounded-lg px-2 py-1 text-xs w-20 text-right focus:ring-1 focus:ring-indigo-300" placeholder="0"/>
-                                  <span className="text-xs text-slate-400">%</span>
-                                </div>
-                              ))}
-                            </div>
-                          : <p className="px-4 py-2 text-xs text-slate-400 italic">Adicione analistas acima.</p>
-                        }
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                }
+                <datalist id="pulseAnalystDL">{allAnalysts.map(a=><option key={a} value={a}/>)}</datalist>
+                <p className="text-xs text-slate-400 mt-3">Percentuais e datas de alocação são geridos em Gestão → Projetos.</p>
               </div>
             )}
           </section>
