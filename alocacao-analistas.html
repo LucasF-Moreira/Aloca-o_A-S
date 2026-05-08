@@ -1230,23 +1230,53 @@ function App() {
     if (module==='gestao' && accessLevel!==null && accessLevel>=3) setModule(null);
   },[module, accessLevel]);
 
+  const PENDING_LABEL   = 'Alocação pendente';
+
   const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
   const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
-  const allocations     = useMemo(()=>computeAllocations(filteredProjects),[filteredProjects]);
-  const headAllocations = useMemo(()=>computeHeadAllocations(filteredProjects),[filteredProjects]);
-  // Analyst list: SP team (Analistas) or fallback from allocation keys
-  const analysts        = useMemo(()=>{
-    // Usa lista oficial (teamMembers). Se vazia, deriva das alocações como fallback.
-    if (teamMembers.length>0) return teamMembers;
-    return Object.keys(allocations).sort();
+
+  // Alocações de analistas — nomes não oficiais mesclados em "Alocação pendente"
+  const allocations = useMemo(()=>{
+    const raw = computeAllocations(filteredProjects);
+    if (!teamMembers.length) return raw;
+    const officialSet = new Set(teamMembers);
+    const pending = {}, result = {};
+    Object.entries(raw).forEach(([name, monthAlloc])=>{
+      if (officialSet.has(name)) { result[name]=monthAlloc; }
+      else { Object.entries(monthAlloc).forEach(([m,pct])=>{ pending[m]=Math.round((pending[m]||0)+pct); }); }
+    });
+    if (Object.keys(pending).length>0) result[PENDING_LABEL]=pending;
+    return result;
+  },[filteredProjects, teamMembers]);
+
+  // Alocações de heads — nomes não oficiais mesclados em "Alocação pendente"
+  const headAllocations = useMemo(()=>{
+    const raw = computeHeadAllocations(filteredProjects);
+    if (!headMembers.length) return raw;
+    const officialSet = new Set(headMembers);
+    const pending = {}, result = {};
+    Object.entries(raw).forEach(([name, monthAlloc])=>{
+      if (officialSet.has(name)) { result[name]=monthAlloc; }
+      else { Object.entries(monthAlloc).forEach(([m,pct])=>{ pending[m]=Math.round((pending[m]||0)+pct); }); }
+    });
+    if (Object.keys(pending).length>0) result[PENDING_LABEL]=pending;
+    return result;
+  },[filteredProjects, headMembers]);
+
+  // Analyst list: oficial + "Alocação pendente" se houver não-oficiais alocados
+  const analysts = useMemo(()=>{
+    if (!teamMembers.length) return Object.keys(allocations).sort();
+    return PENDING_LABEL in allocations ? [...teamMembers, PENDING_LABEL] : teamMembers;
   },[teamMembers, allocations]);
-  // Head list: SP team (Consultores) or fallback from project head fields
-  const heads           = useMemo(()=>{
-    if (headMembers.length>0) return headMembers;
-    const set=new Set();
-    filteredProjects.forEach(p=>_projHeads(p).forEach(h=>set.add(h)));
-    return [...set].sort();
-  },[headMembers, filteredProjects]);
+
+  // Head list: oficial + "Alocação pendente" se houver não-oficiais alocados
+  const heads = useMemo(()=>{
+    if (!headMembers.length) {
+      const set=new Set(); filteredProjects.forEach(p=>_projHeads(p).forEach(h=>set.add(h)));
+      return [...set].sort();
+    }
+    return PENDING_LABEL in headAllocations ? [...headMembers, PENDING_LABEL] : headMembers;
+  },[headMembers, headAllocations, filteredProjects]);
   const months          = useMemo(()=>rangeMonths(monthRange.start,monthRange.end),[monthRange]);
   // Alocações base + extras mescladas para o Dashboard (mensal)
   const activeAllocsWithExtras = useMemo(()=>{
@@ -2091,7 +2121,7 @@ function DashboardView({analysts,allocations,months,monthRange,setMonthRange,onA
             <button key={analyst} onClick={()=>onAnalystClick(analyst)}
               className="bg-white rounded-xl border border-slate-200 p-4 text-left hover:border-indigo-300 hover:shadow-md transition group">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold text-slate-800 group-hover:text-indigo-700 truncate">{analyst}</span>
+                <span className={`text-sm font-semibold truncate ${analyst===PENDING_LABEL?'text-amber-700 group-hover:text-amber-800':'text-slate-800 group-hover:text-indigo-700'}`}>{analyst}</span>
                 <TrafficDot pct={max} vacation={hasVacation&&max===100}/>
               </div>
               <p className={`text-2xl font-bold ${hasVacation&&max===100?'text-blue-600':max>100?'text-red-600':max>90?'text-yellow-600':'text-green-600'}`}>{max}%</p>
