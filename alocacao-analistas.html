@@ -67,6 +67,8 @@ const PHASES = [
 ];
 // Colunas SP que diferem do padrão Fim_${key} para a data de término da fase
 const PHASE_END_COLS = { Ranking: 'Termino_Ranking' };
+// Fases que não possuem colunas de PCT no SP (somente datas de início/fim)
+const PHASE_NO_PCT   = new Set(['Ranking']);
 const MAX_ANALYSTS   = 8;
 const ANALYST_KEYS   = Array.from({length:MAX_ANALYSTS},(_,i)=>`Analista_${i+1}`);
 const SP_SITE_URL    = 'https://ciadetalentos-my.sharepoint.com/personal/automacoes_fpa_ciadetalentos_com';
@@ -296,8 +298,8 @@ const SP_SELECT      = [
   ...PHASES.flatMap(ph=>[
     `Inicio_${ph.key}`,
     PHASE_END_COLS[ph.key]||`Fim_${ph.key}`,
-    `Analista_${ph.key}_PCT`,
-    HEAD_PCT_COLS[ph.key],
+    !PHASE_NO_PCT.has(ph.key) ? `Analista_${ph.key}_PCT` : null,
+    !PHASE_NO_PCT.has(ph.key) ? HEAD_PCT_COLS[ph.key]   : null,
   ].filter(Boolean)),
   // PULSE_FIELDS removidos — URL ficaria longa demais. Carregados via fetchSPItemFull ao editar.
 ].join(',');
@@ -391,8 +393,8 @@ function parseSPItem(item) {
   const n = Math.max(analysts.length, 1);
   const phases = {};
   PHASES.forEach(ph=>{
-    const tot      = parsePct(item[`Analista_${ph.key}_PCT`]);
-    const perEach  = tot>0 ? Math.round(tot/n) : 0;
+    const tot     = PHASE_NO_PCT.has(ph.key) ? 0 : parsePct(item[`Analista_${ph.key}_PCT`]);
+    const perEach = tot>0 ? Math.round(tot/n) : 0;
     phases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
       end:   item[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`]||null,
@@ -405,8 +407,8 @@ function parseSPItem(item) {
   const headPhases = {};
   PHASES.forEach(ph=>{
     // Tenta o nome mapeado e o default como fallback para máxima robustez
-    const colName = HEAD_PCT_COLS[ph.key] || HEAD_PCT_COLS_DEFAULT[ph.key];
-    const tot     = parsePct(item[colName]) || parsePct(item[HEAD_PCT_COLS_DEFAULT[ph.key]]);
+    const colName = PHASE_NO_PCT.has(ph.key) ? null : (HEAD_PCT_COLS[ph.key] || HEAD_PCT_COLS_DEFAULT[ph.key]);
+    const tot     = colName ? (parsePct(item[colName]) || parsePct(item[HEAD_PCT_COLS_DEFAULT[ph.key]])) : 0;
     const perEach = tot>0 ? Math.round(tot/nh) : 0;
     headPhases[ph.key] = {
       start: item[`Inicio_${ph.key}`]||null,
@@ -477,11 +479,13 @@ function buildSPPayload(project) {
     const headPhase = project.headPhases?.[ph.key]||{};
     const total     = totalPhasePct(phase);
     const headTotal = totalPhasePct(headPhase);
-    payload[`Inicio_${ph.key}`]                        = phase.start ? fmtDateForSP(phase.start) : null;
-    payload[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`]  = phase.end   ? fmtDateForSP(phase.end)   : null;
-    payload[`Analista_${ph.key}_PCT`]                 = pctToSP(total);
-    const headCol = HEAD_PCT_COLS[ph.key];
-    if (headCol) payload[headCol]                     = pctToSP(headTotal);
+    payload[`Inicio_${ph.key}`]                       = phase.start ? fmtDateForSP(phase.start) : null;
+    payload[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`] = phase.end   ? fmtDateForSP(phase.end)   : null;
+    if (!PHASE_NO_PCT.has(ph.key)) {
+      payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+      const headCol = HEAD_PCT_COLS[ph.key];
+      if (headCol) payload[headCol]     = pctToSP(headTotal);
+    }
   });
   return payload;
 }
@@ -1485,9 +1489,11 @@ function App() {
         const headTotal = totalPhasePct(headPhase);
         payload[`Inicio_${ph.key}`]                       = phase.start ? fmtDateForSP(phase.start) : null;
         payload[PHASE_END_COLS[ph.key]||`Fim_${ph.key}`] = phase.end   ? fmtDateForSP(phase.end)   : null;
-        payload[`Analista_${ph.key}_PCT`]                = pctToSP(total);
-        const headCol = HEAD_PCT_COLS[ph.key];
-        if (headCol) payload[headCol]                    = pctToSP(headTotal);
+        if (!PHASE_NO_PCT.has(ph.key)) {
+          payload[`Analista_${ph.key}_PCT`] = pctToSP(total);
+          const headCol = HEAD_PCT_COLS[ph.key];
+          if (headCol) payload[headCol]     = pctToSP(headTotal);
+        }
       });
       await patchSPItem(authState.token, SP_SITE_URL, SP_LIST_NAME, project.spId, payload);
       // Usa distDataRef.current para garantir que férias/extras salvos antes não sejam perdidos
