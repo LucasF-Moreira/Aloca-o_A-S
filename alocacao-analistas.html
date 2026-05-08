@@ -860,9 +860,11 @@ async function fetchHeadMembers(token, siteUrl) {
 async function fetchKAMembers(token, siteUrl) {
   try {
     const base = _spListBase(siteUrl, SP_TEAM_LIST);
-    const url  = `${base}/items?$select=Title,Classificacao&$filter=Classificacao eq 'KA'&$top=500`;
-    const json = await spFetch(token, url);
-    return (json.value||[]).map(i=>( i.Title||'' ).trim()).filter(Boolean).sort();
+    // Busca todos e filtra no cliente (igual fetchUserAccess) — evita inconsistências do $filter SP
+    const json = await spFetch(token, `${base}/items?$select=Title,Classificacao&$top=500`);
+    return (json.value||[])
+      .filter(i=>(i.Classificacao||'').trim().toUpperCase()==='KA')
+      .map(i=>(i.Title||'').trim()).filter(Boolean).sort();
   } catch { return []; }
 }
 // Retorna o nível de acesso do usuário logado (coluna Acesso na List_Pulse_Equipe).
@@ -1234,10 +1236,9 @@ function App() {
   const headAllocations = useMemo(()=>computeHeadAllocations(filteredProjects),[filteredProjects]);
   // Analyst list: SP team (Analistas) or fallback from allocation keys
   const analysts        = useMemo(()=>{
-    // Sempre inclui todos que aparecem nas alocações (ex: "Alocar") mesmo que não estejam na lista oficial
-    const official = teamMembers.length>0 ? teamMembers : [];
-    const fromAlloc = Object.keys(allocations);
-    return [...new Set([...official,...fromAlloc])].sort();
+    // Usa lista oficial (teamMembers). Se vazia, deriva das alocações como fallback.
+    if (teamMembers.length>0) return teamMembers;
+    return Object.keys(allocations).sort();
   },[teamMembers, allocations]);
   // Head list: SP team (Consultores) or fallback from project head fields
   const heads           = useMemo(()=>{
@@ -2295,15 +2296,16 @@ function MonthlyGrid({analysts,allocations,months,monthRange,setMonthRange,onAna
 // ─── Projects View ────────────────────────────────────────────────────────────
 function ProjectsView({projects,onEdit,onNew,getSuggestions,onAddAnalyst}) {
   const [search,    setSearch]    = useState('');
-  const [gscFilter, setGscFilter] = useState(''); // '' = todos | 'com' = com GSC | 'sem' = sem GSC
+  const [gscFilter, setGscFilter] = useState(''); // '' = todos | nome = filtra por GSC específico
   const [showSug,   setShowSug]   = useState(null);
+
+  // Lista de GSCs únicos com projetos
+  const gscList = useMemo(()=>[...new Set(projects.map(p=>p.ka).filter(Boolean))].sort(),[projects]);
 
   const filtered = projects.filter(p=>{
     const matchSearch = p.title.toLowerCase().includes(search.toLowerCase())||
       p.client.toLowerCase().includes(search.toLowerCase());
-    const matchGsc = gscFilter===''||
-      (gscFilter==='com' && p.ka)||
-      (gscFilter==='sem' && !p.ka);
+    const matchGsc = !gscFilter || p.ka===gscFilter;
     return matchSearch && matchGsc;
   });
 
@@ -2313,12 +2315,11 @@ function ProjectsView({projects,onEdit,onNew,getSuggestions,onAddAnalyst}) {
         <h2 className="text-lg font-bold text-slate-800">Projetos</h2>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar projeto..."
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm flex-1 min-w-48 focus:ring-2 focus:ring-indigo-200"/>
-        {/* Filtro GSC */}
+        {/* Filtro GSC — mostra nomes */}
         <select value={gscFilter} onChange={e=>setGscFilter(e.target.value)}
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:ring-2 focus:ring-indigo-200">
           <option value="">GSC: Todos</option>
-          <option value="com">Com GSC</option>
-          <option value="sem">Sem GSC</option>
+          {gscList.map(g=><option key={g} value={g}>{g}</option>)}
         </select>
         <button onClick={onNew}
           className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm px-4 py-2 rounded-lg font-medium flex items-center gap-1.5">
@@ -3992,24 +3993,16 @@ function PulseEditModal({project, allAnalysts, allKAs, onSave, onClose, saving, 
             </div>
             {!collapsed['Analistas e Fases']&&(
               <div className="px-4 py-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs text-slate-500">Analistas alocados neste processo</p>
-                  <button onClick={addAnalyst} className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold border border-indigo-200 px-2.5 py-1 rounded-lg hover:bg-indigo-50 transition">
-                    + Adicionar
-                  </button>
-                </div>
                 {analysts.length===0
-                  ? <p className="text-slate-400 text-sm italic">Nenhum analista adicionado.</p>
+                  ? <p className="text-slate-400 text-sm italic">Nenhum analista alocado. Gerencie em Gestão → Projetos.</p>
                   : <div className="flex flex-wrap gap-2">
                       {analysts.map((a,idx)=>(
-                        <div key={idx} className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
-                          <span className="text-sm font-medium text-indigo-800">{a||`Analista ${idx+1}`}</span>
-                          <button onClick={()=>removeAnalyst(idx)} className="text-indigo-300 hover:text-red-500 text-base leading-none ml-1">×</button>
-                        </div>
+                        <span key={idx} className="bg-indigo-50 border border-indigo-200 text-indigo-800 text-sm font-medium px-3 py-1.5 rounded-lg">
+                          {a||`Analista ${idx+1}`}
+                        </span>
                       ))}
                     </div>
                 }
-                <datalist id="pulseAnalystDL">{allAnalysts.map(a=><option key={a} value={a}/>)}</datalist>
                 <p className="text-xs text-slate-400 mt-3">Percentuais e datas de alocação são geridos em Gestão → Projetos.</p>
               </div>
             )}
