@@ -286,6 +286,7 @@ function calPhaseStatus(start, end, today) {
   return 'active';
 }
 
+// Campos básicos para fetchSPList — PULSE_FIELDS carregados separadamente via fetchSPItemFull
 const SP_SELECT      = [
   'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
   'KA','Quantidade_Vagas_Prevista',
@@ -298,7 +299,7 @@ const SP_SELECT      = [
     `Analista_${ph.key}_PCT`,
     HEAD_PCT_COLS[ph.key],
   ].filter(Boolean)),
-  ...PULSE_FIELDS.map(f=>f.k),
+  // PULSE_FIELDS removidos — URL ficaria longa demais. Carregados via fetchSPItemFull ao editar.
 ].join(',');
 
 // ─── Date Helpers (always LOCAL midnight — never UTC) ──────────────────────────
