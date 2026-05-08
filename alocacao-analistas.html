@@ -821,14 +821,8 @@ function _spListBase(siteUrl, listName) {
   return `${siteUrl}/_api/web/GetList('${rel}/Lists/${listName}')`;
 }
 async function fetchSPList(token, siteUrl, listName) {
-  // Usa $select com apenas os campos base — igual ao original que funcionava.
-  // Campos Pulse são carregados individualmente por fetchSPItemFull ao editar.
   const base = _spListBase(siteUrl, listName);
-  const sel  = [
-    'Id','indice','Cliente','Status_Programa','Nome_Programa','Ciclo_Orcamentario','Title',
-    'KA',...HEAD_KEYS,...ANALYST_KEYS,
-    ...PHASES.flatMap(ph=>[`Inicio_${ph.key}`,`Fim_${ph.key}`,`Analista_${ph.key}_PCT`]),
-  ].join(',');
+  const sel  = SP_SELECT; // usa a constante centralizada que já inclui PHASE_END_COLS
   let items=[], url=`${base}/items?$select=${encodeURIComponent(sel)}&$top=200`;
   while (url) {
     const json = await spFetch(token, url);
