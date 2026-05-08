@@ -913,7 +913,8 @@ async function createSPItem(token, siteUrl, listName, payload) {
 // ─── Dist data stored as attachment on a hidden List_Pulse item ───────────────
 // Item Title='__alocacao_dist__' acts as a container; JSON stored as attachment.
 // No field-length limits, no new columns, no Documents folder needed.
-const DIST_MARKER   = '__alocacao_dist__';
+const DIST_MARKER     = '__alocacao_dist__';
+const PENDING_LABEL   = 'Alocação pendente'; // card virtual para analistas/heads não cadastrados
 const DIST_ATT_NAME = 'dist.json';
 // Busca o item marcador sem $filter (mais confiável — SP às vezes não retorna resultado
 // com $filter em Title mesmo o item existindo, causando tentativa de criação duplicada).
@@ -1229,8 +1230,6 @@ function App() {
   useEffect(()=>{
     if (module==='gestao' && accessLevel!==null && accessLevel>=3) setModule(null);
   },[module, accessLevel]);
-
-  const PENDING_LABEL   = 'Alocação pendente';
 
   const ciclos          = useMemo(()=>[...new Set(projects.map(p=>p.ciclo).filter(Boolean))].sort(),[projects]);
   const filteredProjects= useMemo(()=>cicloFilter ? projects.filter(p=>p.ciclo===cicloFilter) : projects,[projects,cicloFilter]);
